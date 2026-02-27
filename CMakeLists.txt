@@ -1,0 +1,40 @@
+cmake_minimum_required(VERSION 3.26)
+project(AuEd
+  LANGUAGES CXX
+  VERSION 0.1
+)
+
+add_subdirectory(lib_deps)
+# add_subdirectory(src)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+set(EXEC_NAME example.exe)
+
+# Copying SFML headers
+set(SFML_DOWNLOAD_INCLUDE ${CMAKE_CURRENT_BINARY_DIR}/_deps/sfml-src/include/)
+
+file(COPY ${SFML_DOWNLOAD_INCLUDE}
+     DESTINATION ../include)
+
+# Copying Miniaudio
+file(COPY lib_deps/miniaudio/miniaudio.h
+     DESTINATION ../include)
+
+
+add_executable(${EXEC_NAME} src/main.cpp src/miniaudio.cpp)
+target_include_directories(${EXEC_NAME} PRIVATE include)
+target_link_libraries(${EXEC_NAME} PRIVATE ImGui-SFML::ImGui-SFML)
+
+# Copy DLLs needed for runtime on Windows
+if(WIN32)
+  if (BUILD_SHARED_LIBS)
+    add_custom_command(TARGET ${EXEC_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          $<TARGET_FILE:ImGui-SFML::ImGui-SFML>
+          $<TARGET_FILE:sfml-graphics>
+          $<TARGET_FILE:sfml-window>
+          $<TARGET_FILE:sfml-system>
+          $<TARGET_FILE_DIR:example_exe>)
+  endif()
+endif()
