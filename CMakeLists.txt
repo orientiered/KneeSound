@@ -9,7 +9,17 @@ add_subdirectory(lib_deps)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(EXEC_NAME example.exe)
+set(EXEC_NAME editor.exe)
+
+option(ENABLE_ASAN "Enable Address Sanitizer" ON)
+
+if(ENABLE_ASAN)
+    set(SAN_FLAGS "-fsanitize=address,undefined")
+    add_compile_options(${SAN_FLAGS} -fno-omit-frame-pointer)
+    add_link_options(${SAN_FLAGS})
+endif()
+
+
 
 # Copying SFML headers
 set(SFML_DOWNLOAD_INCLUDE ${CMAKE_CURRENT_BINARY_DIR}/_deps/sfml-src/include/)
@@ -22,9 +32,9 @@ file(COPY lib_deps/miniaudio/miniaudio.h
      DESTINATION ../include)
 
 
-add_executable(${EXEC_NAME} src/main.cpp src/miniaudio.cpp)
-target_include_directories(${EXEC_NAME} PRIVATE include)
-target_link_libraries(${EXEC_NAME} PRIVATE ImGui-SFML::ImGui-SFML)
+add_executable(${EXEC_NAME} src/main.cpp src/miniaudio.cpp lib_deps/ImGuiFileDialog/ImGuiFileDialog.cpp)
+target_include_directories(${EXEC_NAME} PRIVATE include lib_deps/ImGuiFileDialog)
+target_link_libraries(${EXEC_NAME} PRIVATE ImGui-SFML::ImGui-SFML plog::plog)
 
 # Copy DLLs needed for runtime on Windows
 if(WIN32)

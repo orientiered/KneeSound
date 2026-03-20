@@ -25,9 +25,10 @@ FetchContent_Declare(
 )
 add_subdirectory(imgui-sfml)
 
-
 # Miniaudio
 file(DOWNLOAD "https://raw.githubusercontent.com/mackron/miniaudio/refs/heads/master/miniaudio.h"
      "${CMAKE_CURRENT_SOURCE_DIR}/miniaudio/miniaudio.h"
 )
 
+# Plog (logging library)
+add_subdirectory(plog)
