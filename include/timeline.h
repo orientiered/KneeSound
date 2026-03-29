@@ -27,9 +27,14 @@ struct AudioSource {
 
 using AudioSourcePtr = std::shared_ptr<AudioSource>;
 
+using ClipId_t = int64_t;
+
 struct Clip {
+private:
+    static ClipId_t unique_id_;
+public:
     // ==== Data ===
-    std::string id; // ?remove
+    ClipId_t id; // used for interaction handling
     std::string name; // UI name
     AudioSourcePtr source;
 
@@ -78,10 +83,12 @@ struct Clip {
         source(src), name(clip_name ? *clip_name : src->name), timeline_start_frame(timeline_pos),
         source_start_frame(0), source_end_frame(src->pcmData.size() / INNER_CHANNELS)
     {
+        id = unique_id_++; // setting unique id on construction
 
     }
 };
 
+inline ClipId_t Clip::unique_id_ = 0;
 
 class Track {
 public:

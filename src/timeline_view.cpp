@@ -1,5 +1,6 @@
 #include "timeline_view.h"
 #include <imgui.h>
+#include <imgui_internal.h>
 
 namespace waves {
 
@@ -100,7 +101,72 @@ void TimelineView::DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2
     }
 }
 
-void TimelineView::DrawTrack(const Track& track) {
+bool TimelineView::HandleClipInteraction(const Clip& clip,
+                           ImVec2 canvas_pos, ImVec2 mouse_pos,
+                           bool& out_clicked, bool& out_hovered) {
+
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        if (interaction.mode != TimelineInteraction::Mode::None) {
+            //TODO: add interaction to history
+        }
+        interaction.mode = TimelineInteraction::Mode::None;
+        interaction.active_clip_id = -1;
+        // PLOG_DEBUG << "Timeline interaction stop";
+        return false;
+    }
+
+    // absolute frames on timeline
+    auto [clip_left, clip_right] = getVisibleClipRange(clip);
+    // clip is not visible, skipping
+    if (clip_left >= clip_right) return false;
+
+    float x_start = canvas_pos.x + frameToPixel(clip_left);
+    float x_end = canvas_pos.x + frameToPixel(clip_right);
+    float y_top = canvas_pos.y ;
+    float y_bottom = canvas_pos.y + track_height;
+
+    ImRect clip_rect(ImVec2(x_start, y_top), ImVec2(x_end, y_bottom));
+    out_hovered = clip_rect.Contains(mouse_pos);
+
+    //TODO: check click at the edge of the clip -> resize
+    if (out_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+        && interaction.mode == TimelineInteraction::Mode::None ) {
+        PLOG_DEBUG << "Dragging clip with id " << clip.id;
+        out_clicked = true;
+        interaction.mode = TimelineInteraction::Mode::DraggingClip;
+        interaction.mouse_start_pos = mouse_pos;
+        interaction.drag_start_frame = clip.timeline_start_frame;
+        interaction.active_clip_id = clip.id;
+        return true; // состояние изменилось
+    }
+    return false;
+}
+
+bool TimelineView::HandleClipDrag(Clip& clip, ImVec2 mouse_delta) {
+
+    // Конвертируем смещение в пикселях в кадры
+    int64_t frame_delta = pixelToFrameRel(mouse_delta.x);
+
+    if (frame_delta != 0) {
+        PLOG_DEBUG << "Dragging clip " << clip.id << " to " << frame_delta << "frames";
+        // Проверяем границы проекта
+        if (frame_delta < 0 && -frame_delta < clip.timeline_start_frame ) {
+            clip.timeline_start_frame += frame_delta;
+            return true;
+        } else if (frame_delta > 0) {
+            clip.timeline_start_frame += frame_delta;
+            // expanding timeline if necessary
+            if (clip.getTimelineEndFrame() > total_frames) {
+                total_frames = clip.getTimelineEndFrame();
+            }
+
+            return true;
+        }
+    }
+    return false;
+}
+
+void TimelineView::DrawTrack(Track& track) {
 
     bool modified = false;
 
@@ -113,43 +179,35 @@ void TimelineView::DrawTrack(const Track& track) {
     ImVec2 mouse_pos = ImGui::GetMousePos();
 
     // ===== Drawing clips =====
-    for (const Clip& clip : track.clips) {
-        // bool is_selected = (interaction->active_clip_id == clip.id);
-        bool is_selected = false;
+    for (Clip& clip: track.clips) {
         bool is_hovered = false;
         bool clicked = false;
 
         // Проверка интерактивности
-        // HandleClipInteraction(clip, *view, canvas_pos, mouse_pos, clicked, is_hovered);
+        HandleClipInteraction(clip, canvas_pos, mouse_pos, clicked, is_hovered);
+        bool is_selected = (interaction.active_clip_id == clip.id);
 
-        // if (clicked) {
-        //     interaction->mode = TimelineInteraction::Mode::DraggingClip;
-        //     interaction->active_clip_id = clip.id;
-        //     interaction->mouse_start_pos = mouse_pos;
-        //     modified = true;
-        // }
+        // Обработка перетаскивания
+        if (interaction.mode == TimelineInteraction::Mode::DraggingClip &&
+            is_selected && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
 
+            ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
+            // ImVec2 delta = mouse_pos - interaction.mouse_start_pos;
+            if (HandleClipDrag(clip, delta)) {
+                modified = true;
+                ImGui::ResetMouseDragDelta(ImGuiMouseButton_Left);
+            }
+        }
         // Отрисовка
         DrawClip(draw_list, clip, canvas_pos, is_selected, is_hovered);
 
-        // Обработка перетаскивания
-//         if (interaction->mode == TimelineInteraction::Mode::DraggingClip &&
-//             interaction->active_clip_id == clip.id &&
-//             ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-//
-//             ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
-//             if (HandleClipDrag(clip, *view, canvas_pos, true, delta)) {
-//                 modified = true;
-//                 ImGui::ResetMouseDragDelta(ImGuiMouseButton_Left);
-//             }
-//         }
     }
 
     ImGui::EndChild();
     ImGui::PopID();
 }
 
-void TimelineView::DrawTimeline(const TimeLine& timeline) {
+void TimelineView::DrawTimeline(TimeLine& timeline) {
     bool modified = false;
 
     // Timeline over all available space
@@ -166,7 +224,7 @@ void TimelineView::DrawTimeline(const TimeLine& timeline) {
 
 
     // === 2. Drawing tracks
-    for (const Track& track: timeline.tracks) {
+    for (Track& track: timeline.tracks) {
         DrawTrack(track);
     }
 

@@ -6,6 +6,16 @@
 
 namespace waves {
 
+struct TimelineInteraction {
+    enum class Mode { None, Selecting, DraggingClip, ResizingClip } mode;
+    ClipId_t active_clip_id;
+    ma_uint64 drag_start_frame; // позиция клипа в момент начала перетаскивания, needed for undo/redo
+    ImVec2 mouse_start_pos;
+
+    TimelineInteraction(): mode(Mode::None) {}
+
+};
+
 class TimelineView {
     ma_uint64 total_frames;      // общая длина проекта
 
@@ -30,6 +40,8 @@ class TimelineView {
     ImVec2 canvas_pos;
     float  canvas_width;
     ImVec2 full_canvas_size;
+
+    TimelineInteraction interaction;
 
 public:
 
@@ -118,6 +130,14 @@ public:
         }
     }
 
+    // ====
+
+    bool HandleClipInteraction(const Clip& clip,
+                           ImVec2 canvas_pos, ImVec2 mouse_pos,
+                           bool& out_clicked, bool& out_hovered);
+
+    bool HandleClipDrag(Clip& clip, ImVec2 mouse_delta);
+
     // ======== DRAWING ==============
     void DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
                       ImVec2 canvas_pos, float height, std::pair<ma_uint64, ma_uint64> clip_timeline_frames);
@@ -128,9 +148,9 @@ public:
     void DrawClip(ImDrawList* draw_list, const Clip& clip,
                 ImVec2 canvas_pos, bool is_selected, bool is_hovered);
 
-    void DrawTrack(const Track& track);
+    void DrawTrack(Track& track);
 
-    void DrawTimeline(const TimeLine& timeline);
+    void DrawTimeline(TimeLine& timeline);
 
 };
 
