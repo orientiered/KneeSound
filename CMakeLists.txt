@@ -32,7 +32,9 @@ file(COPY lib_deps/miniaudio/miniaudio.h
      DESTINATION ../include)
 
 
-add_executable(${EXEC_NAME} src/main.cpp src/miniaudio.cpp lib_deps/ImGuiFileDialog/ImGuiFileDialog.cpp)
+set(PROJ_SRC src/main.cpp src/miniaudio.cpp src/editor.cpp src/timeline_view.cpp)
+
+add_executable(${EXEC_NAME} ${PROJ_SRC} lib_deps/ImGuiFileDialog/ImGuiFileDialog.cpp)
 target_include_directories(${EXEC_NAME} PRIVATE include lib_deps/ImGuiFileDialog)
 target_link_libraries(${EXEC_NAME} PRIVATE ImGui-SFML::ImGui-SFML plog::plog)
 

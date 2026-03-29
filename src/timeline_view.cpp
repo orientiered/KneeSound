@@ -1,0 +1,206 @@
+#include "timeline_view.h"
+#include <imgui.h>
+
+namespace waves {
+
+//! Assuming that clip_timeline frames is visible
+void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const waves::Clip& clip,
+                      ImVec2 canvas_pos, float height, std::pair<ma_uint64, ma_uint64> timeline_clip_frames) {
+    if (!clip.source || clip.source->pcmData.empty()) return;
+
+    float center_y = canvas_pos.y + height / 2;
+
+    ma_uint64 clip_start_frame = timeline_clip_frames.first - clip.timeline_start_frame + clip.source_start_frame;
+    ma_uint64 clip_end_frame  = timeline_clip_frames.second - clip.timeline_start_frame + clip.source_start_frame;
+
+    float start_x = canvas_pos.x + frameToPixel(timeline_clip_frames.first);
+    float end_x   = canvas_pos.x + frameToPixel(timeline_clip_frames.second);
+    float width   = end_x - start_x;
+
+    // Calculating frame step
+    // At least one frame or 1 pixel
+    // int min_step = std::max(1.f, width / MAX_POINTS_PER_WAVEFORM);
+    int step = std::max(1, static_cast<int>((clip_end_frame-clip_start_frame) / width));
+    // generating waveform
+
+    ImVec2 prev_point = ImVec2(start_x, center_y);
+
+    //TODO: сделать так, чтобы вид вэйвформы не менялся при смещении
+    for (ma_uint64 f = clip_start_frame; f < clip_end_frame; f += step) {
+        float x = start_x + frameToPixelRel(f - clip_start_frame);
+        // if (x > canvas_width) break;
+
+        // Берём сэмпл (упрощённо: только первый канал, усреднение)
+        float sample = clip.source->getMonoSampleAmplitude(f);
+        float y = center_y - sample * (height / 2) * 0.9f; // 0.8 для отступа
+
+        draw_list->AddLine(prev_point, ImVec2(x, y), IM_COL32(255, 255, 255, 100), 2.f);
+        prev_point = ImVec2(x, y);
+    }
+}
+
+void TimelineView::DrawClip(ImDrawList* draw_list, const Clip& clip,
+              ImVec2 canvas_pos, bool is_selected, bool is_hovered) {
+
+    // absolute frames on timeline
+    auto [clip_left, clip_right] = getVisibleClipRange(clip);
+    // clip is not visible, skipping
+    if (clip_left >= clip_right) return;
+
+    float x_start = canvas_pos.x + frameToPixel(clip_left);
+    float x_end = canvas_pos.x + frameToPixel(clip_right);
+    // TODO: draw two channels
+    float y_top = canvas_pos.y + 0.f;
+    float y_bottom = canvas_pos.y + track_height;
+
+    ImVec2 start(x_start, y_top), end(x_end, y_bottom);
+
+    // Цвета в зависимости от состояния
+    ImU32 color_base = is_selected ? IM_COL32(100, 149, 237, 255)  // cornflower blue
+                                   : IM_COL32(70, 130, 180, 200);   // steel blue
+    ImU32 color_border = is_hovered ? IM_COL32(255, 255, 255, 255)
+                                    : IM_COL32(255, 255, 255, 150);
+
+    // Drawing rectangle over clip
+    draw_list->AddRectFilled(start, end, color_base, 3.0f);
+    draw_list->AddRect(start, end, color_border, 3.0f);
+
+    // Drawing clip labe;
+    std::string label = clip.name.empty() ? "Clip" : clip.name;
+    draw_list->AddText(ImVec2(x_start + 4, y_top + 4), IM_COL32(255, 255, 255, 255), label.c_str());
+
+    // Drawing waveform
+    if (clip.source && (x_end - x_start) > 20) {
+        DrawMiniWaveform(draw_list, clip,
+                canvas_pos + ImVec2{0, ImGui::GetTextLineHeight()},
+                track_height - ImGui::GetTextLineHeight(),
+                {clip_left, clip_right});
+    }
+}
+
+void TimelineView::DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2 canvas_size) {
+
+    float step = getBeatStepInPixels();
+
+    auto [beat_idx, current_rel_x] = getNearestBeatInPixels();
+    float y_start = canvas_pos.y;
+    float y_end   = canvas_pos.y + canvas_size.y;
+
+    while (current_rel_x < canvas_size.x) {
+        float current_x = canvas_pos.x + current_rel_x;
+        draw_list->AddLine(ImVec2{current_x, y_start}, ImVec2{current_x, y_end}, getGridLineCol());
+
+        if (beat_idx % time_signature == 0) {
+            std::string beat_str = std::to_string(beat_idx);
+            draw_list->AddText(ImVec2{current_x, y_start}, getGridLineCol(), beat_str.c_str());
+        }
+
+        current_rel_x += step;
+        beat_idx++;
+    }
+}
+
+void TimelineView::DrawTrack(const Track& track) {
+
+    bool modified = false;
+
+    ImGui::PushID(&track);
+    ImGui::BeginChild("Track_canvas", ImVec2(0, track_height), 0, ImGuiWindowFlags_HorizontalScrollbar);
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
+    full_canvas_size = ImGui::GetContentRegionAvail();
+    ImVec2 mouse_pos = ImGui::GetMousePos();
+
+    // ===== Drawing clips =====
+    for (const Clip& clip : track.clips) {
+        // bool is_selected = (interaction->active_clip_id == clip.id);
+        bool is_selected = false;
+        bool is_hovered = false;
+        bool clicked = false;
+
+        // Проверка интерактивности
+        // HandleClipInteraction(clip, *view, canvas_pos, mouse_pos, clicked, is_hovered);
+
+        // if (clicked) {
+        //     interaction->mode = TimelineInteraction::Mode::DraggingClip;
+        //     interaction->active_clip_id = clip.id;
+        //     interaction->mouse_start_pos = mouse_pos;
+        //     modified = true;
+        // }
+
+        // Отрисовка
+        DrawClip(draw_list, clip, canvas_pos, is_selected, is_hovered);
+
+        // Обработка перетаскивания
+//         if (interaction->mode == TimelineInteraction::Mode::DraggingClip &&
+//             interaction->active_clip_id == clip.id &&
+//             ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+//
+//             ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
+//             if (HandleClipDrag(clip, *view, canvas_pos, true, delta)) {
+//                 modified = true;
+//                 ImGui::ResetMouseDragDelta(ImGuiMouseButton_Left);
+//             }
+//         }
+    }
+
+    ImGui::EndChild();
+    ImGui::PopID();
+}
+
+void TimelineView::DrawTimeline(const TimeLine& timeline) {
+    bool modified = false;
+
+    // Timeline over all available space
+    ImGui::BeginChild("Timeline_canvas", ImVec2(0, 0), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    canvas_pos = ImGui::GetCursorScreenPos();
+    full_canvas_size = ImGui::GetContentRegionAvail();
+    canvas_width = full_canvas_size.x;
+    ImVec2 mouse_pos = ImGui::GetMousePos();
+
+    // === 1. Drawing time grid ===
+    DrawTimeGrid(draw_list, canvas_pos, full_canvas_size);
+
+
+    // === 2. Drawing tracks
+    for (const Track& track: timeline.tracks) {
+        DrawTrack(track);
+    }
+
+     // // === 3. Курсор воспроизведения ===
+    // if (playhead_frame >= view->scroll_frame) {
+    //     float playhead_x = canvas_pos.x + view->frameToPixel(playhead_frame);
+    //     draw_list->AddLine(ImVec2(playhead_x, canvas_pos.y),
+    //                       ImVec2(playhead_x, canvas_pos.y + canvas_size.y),
+    //                       IM_COL32(255, 0, 0, 255), 2.0f);
+    // }
+
+    // === 4. Handling scroll and zoom ===
+    bool keyCtrl_pressed = ImGui::GetIO().KeyCtrl;
+    bool keyShift_pressed = ImGui::GetIO().KeyShift;
+    float mouseWheel_delta = ImGui::GetIO().MouseWheel;
+
+    if (ImGui::IsWindowHovered() && mouseWheel_delta != 0) {
+        if (keyCtrl_pressed) {
+            float mouse_x_rel = mouse_pos.x - canvas_pos.x;
+            zoomAtPixel(mouse_x_rel, mouseWheel_delta > 0 ? 1.1f : 0.9f);
+            modified = true;
+        } else if (keyShift_pressed) {
+            track_height *= mouseWheel_delta > 0 ? 1.1f : 0.9f;
+        } else {
+            float pixels_per_mouse_scroll = 50;
+            float pixel_delta = (mouseWheel_delta > 0 ? 1.f: -1.f) * pixels_per_mouse_scroll;
+
+            scrollByFrames(pixelToFrameRel(pixel_delta));
+
+        }
+    }
+
+
+    ImGui::EndChild();
+}
+
+}
