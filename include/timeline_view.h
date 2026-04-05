@@ -16,6 +16,9 @@ struct TimelineInteraction {
     ma_uint64 drag_start_frame; // позиция клипа в момент начала перетаскивания, needed for undo/redo
     ImVec2 mouse_start_pos;
 
+
+    bool has_changes = false;
+
     TimelineInteraction(): mode(Mode::None) {}
 
 };
@@ -144,10 +147,10 @@ public:
     // ====
 
     bool HandleClipInteraction(const Clip& clip,
-                           ImVec2 canvas_pos, ImVec2 mouse_pos,
-                           bool& out_clicked, bool& out_hovered);
+                           ImVec2 canvas_pos, ImVec2 mouse_pos);
 
-    bool HandleClipDrag(Clip& clip, ImVec2 mouse_delta);
+    bool HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_delta);
+    bool HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_pos);
 
     // ======== DRAWING ==============
     void DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,

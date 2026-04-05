@@ -87,6 +87,15 @@ public:
         id = unique_id_++; // setting unique id on construction
 
     }
+
+    // Clip(const Clip& other) = default;
+    // Clip(Clip&& other) noexcept = default;
+
+    // Clip& operator=(const Clip& other) = default;
+    // Clip(const Clip& other): source(other.source), name(other.name), timeline_start_frame(other.timeline_start_frame),
+    //     source_start_frame(other.source_start_frame), source_end_frame(other.source_end_frame) {
+    //     id = unique_id_++;
+    // }
 };
 
 inline ClipId_t Clip::unique_id_ = 0;
@@ -101,10 +110,21 @@ public:
     bool  mute;
 
     void addClip(Clip&& clip) {
-        PLOG_INFO << "Add clip '" << clip.name << "' to track '" << name << "'";
+        PLOG_INFO << "Add clip '" << clip.name << "' [" << &clip << "] to track '" << name << "'";
+        PLOG_INFO << "Clip len " << clip.getDurationFrames() << " frames";
+        clips.push_back(std::move(clip));
+    }
+
+    void addClip(Clip& clip) {
+        PLOG_INFO << "Add clip '" << clip.name << "' [" << &clip << "] to track '" << name << "'";
         PLOG_INFO << "Clip len " << clip.getDurationFrames() << " frames";
         clips.push_back(clip);
     }
+};
+
+struct ClipLoc {
+    size_t track_idx;
+    size_t clip_idx;
 };
 
 class TimeLine {
@@ -112,6 +132,22 @@ public:
     std::vector<Track> tracks;
 
     std::atomic<ma_uint64> playhead_frame;
+
+    std::vector<audio_sample_t> rendered;
+
+    bool isValidClipId(ClipId_t id);
+
+    std::optional<ClipLoc> getTrackAndClipIdx(ClipId_t id);
+    Clip *getClipById(ClipId_t id);
+    std::optional<size_t>  getTrackIdx(ClipId_t id);
+    void removeClipById(ClipId_t id);
+
+    void moveClipToTrack(ClipId_t id, int track_idx);
+
+    // std::vector<audio_sample_t>
+
+
+
 };
 
 } // namespace waves
