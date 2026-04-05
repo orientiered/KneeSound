@@ -2,9 +2,8 @@
 
 #include "common.h"
 
-#include "miniaudio.h"
 #include <mutex>
-#include <stdexcept>
+#include "miniaudio.h"
 
 #include "miniaudio_utils.h"
 #include "timeline.h"

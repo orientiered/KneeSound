@@ -3,16 +3,15 @@
 #include "SFML/Window/Event.hpp"
 #include "SFML/Graphics.hpp"
 
+#include "common.h"
+
 #include "imgui-SFML.h"
 #include "imgui.h"
 
-#include <iostream>
-#include <memory>
 #include <optional>
 
 #include "ImGuiFileDialog.h"
 
-#include "common.h"
 
 #include "editor.h"
 
@@ -42,7 +41,7 @@ int main() {
 
     const char * font_path = "./data/Play-Regular.ttf";
 
-    ImFont* font = imIO.Fonts->AddFontFromFileTTF(font_path, 16.f, nullptr, imIO.Fonts->GetGlyphRangesCyrillic());
+    ImFont* font = imIO.Fonts->AddFontFromFileTTF(font_path, 30.f, nullptr, imIO.Fonts->GetGlyphRangesCyrillic());
     PLOG_ERROR_IF(!font) << "Failed to load font " << font_path;
 
     if (!font) {

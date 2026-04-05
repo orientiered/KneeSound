@@ -1,6 +1,6 @@
+#include "common.h"
+
 #include "timeline_view.h"
-#include <imgui.h>
-#include <imgui_internal.h>
 
 namespace waves {
 
@@ -102,30 +102,14 @@ void TimelineView::DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2
 }
 
 bool TimelineView::HandleClipInteraction(const Clip& clip,
-                           ImVec2 canvas_pos, ImVec2 mouse_pos,
-                           bool& out_clicked, bool& out_hovered) {
-
-    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-        if (interaction.mode != TimelineInteraction::Mode::None) {
-            //TODO: add interaction to history
-        }
-        interaction.mode = TimelineInteraction::Mode::None;
-        interaction.active_clip_id = -1;
-        // PLOG_DEBUG << "Timeline interaction stop";
-        return false;
-    }
+                           ImVec2 canvas_pos, ImVec2 mouse_pos) {
 
     // absolute frames on timeline
     auto [clip_left, clip_right] = getVisibleClipRange(clip);
     // clip is not visible, skipping
     if (clip_left >= clip_right) return false;
 
-    float x_start = canvas_pos.x + frameToPixel(clip_left);
-    float x_end = canvas_pos.x + frameToPixel(clip_right);
-    float y_top = canvas_pos.y ;
-    float y_bottom = canvas_pos.y + track_height;
-
-    ImRect clip_rect(ImVec2(x_start, y_top), ImVec2(x_end, y_bottom));
+    ImRect clip_rect = getClipRect(canvas_pos, track_height, clip_left, clip_right);
     out_hovered = clip_rect.Contains(mouse_pos);
 
     //TODO: check click at the edge of the clip -> resize
@@ -136,7 +120,7 @@ bool TimelineView::HandleClipInteraction(const Clip& clip,
         interaction.mode = TimelineInteraction::Mode::DraggingClip;
         interaction.mouse_start_pos = mouse_pos;
         interaction.drag_start_frame = clip.timeline_start_frame;
-        interaction.active_clip_id = clip.id;
+        interaction.selected_clip_id = clip.id;
         return true; // состояние изменилось
     }
     return false;
@@ -175,7 +159,7 @@ void TimelineView::DrawTrack(Track& track) {
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
-    full_canvas_size = ImGui::GetContentRegionAvail();
+    ImVec2 full_canvas_size = ImGui::GetContentRegionAvail();
     ImVec2 mouse_pos = ImGui::GetMousePos();
 
     // ===== Drawing clips =====
@@ -185,7 +169,7 @@ void TimelineView::DrawTrack(Track& track) {
 
         // Проверка интерактивности
         HandleClipInteraction(clip, canvas_pos, mouse_pos, clicked, is_hovered);
-        bool is_selected = (interaction.active_clip_id == clip.id);
+        bool is_selected = (interaction.selected_clip_id == clip.id);
 
         // Обработка перетаскивания
         if (interaction.mode == TimelineInteraction::Mode::DraggingClip &&
@@ -207,6 +191,26 @@ void TimelineView::DrawTrack(Track& track) {
     ImGui::PopID();
 }
 
+void TimelineView::DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline, 
+                                ImVec2 canvas_pos, ImVec2 size) {
+    ImVec2 mouse_pos = ImGui::GetMousePos();
+
+    ImRect timeline_rect = ImRect(canvas_pos, canvas_pos + size);
+    if (timeline_rect.Contains(mouse_pos) && 
+        ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {   
+        timeline.playhead_frame.store(pixelToFrame(mouse_pos.x - canvas_pos.x));
+    }
+
+    ma_uint64 playhead_frame = timeline.playhead_frame.load();
+    if (playhead_frame >= scroll_frame) {
+        float playhead_x = canvas_pos.x + frameToPixel(playhead_frame);
+        draw_list->AddLine(ImVec2(playhead_x, canvas_pos.y),
+                          ImVec2(playhead_x, canvas_pos.y + size.y),
+                          playhead_col, 2.0f);
+    }   
+}
+
+
 void TimelineView::DrawTimeline(TimeLine& timeline) {
     bool modified = false;
 
@@ -215,7 +219,7 @@ void TimelineView::DrawTimeline(TimeLine& timeline) {
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     canvas_pos = ImGui::GetCursorScreenPos();
-    full_canvas_size = ImGui::GetContentRegionAvail();
+    ImVec2 full_canvas_size = ImGui::GetContentRegionAvail();
     canvas_width = full_canvas_size.x;
     ImVec2 mouse_pos = ImGui::GetMousePos();
 
@@ -228,13 +232,8 @@ void TimelineView::DrawTimeline(TimeLine& timeline) {
         DrawTrack(track);
     }
 
-     // // === 3. Курсор воспроизведения ===
-    // if (playhead_frame >= view->scroll_frame) {
-    //     float playhead_x = canvas_pos.x + view->frameToPixel(playhead_frame);
-    //     draw_list->AddLine(ImVec2(playhead_x, canvas_pos.y),
-    //                       ImVec2(playhead_x, canvas_pos.y + canvas_size.y),
-    //                       IM_COL32(255, 0, 0, 255), 2.0f);
-    // }
+     // === 3. Курсор воспроизведения ===
+    DrawPlayHead(draw_list, timeline, canvas_pos, full_canvas_size);
 
     // === 4. Handling scroll and zoom ===
     bool keyCtrl_pressed = ImGui::GetIO().KeyCtrl;

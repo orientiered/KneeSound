@@ -1,14 +1,18 @@
 #pragma once
 
-#include "timeline.h"
+#include "common.h"
 
 #include "imgui.h"
+#include <imgui_internal.h>
+
+#include "timeline.h"
 
 namespace waves {
 
 struct TimelineInteraction {
     enum class Mode { None, Selecting, DraggingClip, ResizingClip } mode;
-    ClipId_t active_clip_id;
+    ClipId_t hovered_clip_id = CLIP_NONE; // Currently hovered clip
+    ClipId_t selected_clip_id = CLIP_NONE;  // Selected clip id
     ma_uint64 drag_start_frame; // позиция клипа в момент начала перетаскивания, needed for undo/redo
     ImVec2 mouse_start_pos;
 
@@ -26,6 +30,7 @@ class TimelineView {
     ma_uint64 scroll_frame;      // кадр, соответствующий левому краю видимой области
 
     ImU32 grid_line_col = IM_COL32(0x55, 0x6b, 0xa3, 255);
+    ImU32 playhead_col  = IM_COL32(255, 0, 0, 255);
     float beats_per_second = 2.f;
     int   time_signature = 4;
 
@@ -84,6 +89,12 @@ public:
         return {beat_idx, frameToPixel(beat_idx*step)};
     }
 
+    ImRect getClipRect(ImVec2 pos, float height, ma_uint64 left_frame, ma_uint64 right_frame) {
+        ImVec2 start(pos.x + frameToPixel(left_frame), pos.y);
+        ImVec2 end(pos.x + frameToPixel(right_frame), pos.y + track_height);
+        return ImRect(start, end);  
+    }
+
     ImU32 getGridLineCol() const {
         return grid_line_col;
     }
@@ -113,9 +124,9 @@ public:
             return;
         }
 
-        pixels_per_frame = new_ppf;
-        // Увеличиваем масштаб, сохраняя позицию под курсором
         ma_uint64 frame_under_cursor = pixelToFrame(pixel_x);
+        // Увеличиваем масштаб, сохраняя позицию под курсором
+        pixels_per_frame = new_ppf;
         // Корректируем скролл, чтобы кадр под курсором остался на месте
         scroll_frame = frame_under_cursor - static_cast<ma_uint64>(pixel_x / pixels_per_frame);
     }
@@ -148,6 +159,7 @@ public:
     void DrawClip(ImDrawList* draw_list, const Clip& clip,
                 ImVec2 canvas_pos, bool is_selected, bool is_hovered);
 
+    void DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline, ImVec2 canvas_pos, ImVec2 size);
     void DrawTrack(Track& track);
 
     void DrawTimeline(TimeLine& timeline);

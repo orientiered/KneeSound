@@ -1,5 +1,5 @@
 #pragma once
-
+#include <atomic>
 #include "common.h"
 
 #include "miniaudio.h"
@@ -28,6 +28,7 @@ struct AudioSource {
 using AudioSourcePtr = std::shared_ptr<AudioSource>;
 
 using ClipId_t = int64_t;
+const ClipId_t CLIP_NONE = -1;
 
 struct Clip {
 private:
@@ -110,7 +111,7 @@ class TimeLine {
 public:
     std::vector<Track> tracks;
 
-    ma_uint64 playing_head;
+    std::atomic<ma_uint64> playhead_frame;
 };
 
 } // namespace waves
