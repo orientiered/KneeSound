@@ -38,6 +38,8 @@ class TimelineView {
     int   time_signature = 4;
 
     float track_height = 120.f;
+    float track_pad    = 2.f;
+    float track_info_width = 200.f;
     const float MIN_TRACK_HEIGHT = 50.f;
     const float MAX_TRACK_HEIGHT = 500.f;
 
@@ -46,7 +48,7 @@ class TimelineView {
     // drawing state
 
     ImVec2 canvas_pos;
-    float  canvas_width;
+    float  field_width;
     ImVec2 full_canvas_size;
 
     TimelineInteraction interaction;
@@ -82,7 +84,7 @@ public:
     }
 
     std::pair<ma_uint64, ma_uint64> getVisibleFramesRange() const {
-        return {pixelToFrame(0), pixelToFrame(canvas_width)};
+        return {pixelToFrame(0), pixelToFrame(field_width)};
     }
 
     std::pair<ma_uint64, float> getNearestBeatInPixels() const {
@@ -127,11 +129,12 @@ public:
             return;
         }
 
-        ma_uint64 frame_under_cursor = pixelToFrame(pixel_x);
+        ma_int64 frame_under_cursor = pixelToFrame(pixel_x);
         // Увеличиваем масштаб, сохраняя позицию под курсором
         pixels_per_frame = new_ppf;
         // Корректируем скролл, чтобы кадр под курсором остался на месте
-        scroll_frame = frame_under_cursor - static_cast<ma_uint64>(pixel_x / pixels_per_frame);
+        // Scroll can't be less that zero
+        scroll_frame = std::max(0ll, frame_under_cursor - static_cast<ma_int64>(pixel_x / pixels_per_frame));
     }
 
     void scrollByFrames(int64_t delta_frames) {

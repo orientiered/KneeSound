@@ -105,9 +105,9 @@ public:
     std::string name;
     std::vector<Clip> clips;
 
-    float gain_db;
-    float pan;
-    bool  mute;
+    float gain_db = 0;
+    float pan = 0;
+    bool  mute = false;
 
     void addClip(Clip&& clip) {
         PLOG_INFO << "Add clip '" << clip.name << "' [" << &clip << "] to track '" << name << "'";
@@ -120,6 +120,8 @@ public:
         PLOG_INFO << "Clip len " << clip.getDurationFrames() << " frames";
         clips.push_back(clip);
     }
+
+    Track() : name("None") {}
 };
 
 struct ClipLoc {

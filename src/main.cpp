@@ -218,10 +218,11 @@ void handle_media_pool_player(waves::Editor& editor) {
             ImGui::PopID();
 
             if (on_current) {
-                ImGui::SameLine();
+                // ImGui::SameLine();
                 int slider_frame = editor.playback_state.getCurrentTrackPosInFrames();
 
-                if (ImGui::SliderInt("Frame", &slider_frame, 0, editor.playback_state.getCurrentTrackLenInFrames())) {
+                if (ImGui::SliderInt("Frame", &slider_frame, 0, editor.playback_state.getCurrentTrackLenInFrames())
+                    && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                     editor.playback_state.setCurrentTrackPosInFrames(slider_frame);
                 }
 

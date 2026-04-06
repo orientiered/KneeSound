@@ -1,6 +1,7 @@
 #include "common.h"
 
 #include "timeline_view.h"
+#include "imgui_misc.h"
 
 namespace waves {
 
@@ -52,7 +53,7 @@ void TimelineView::DrawClip(ImDrawList* draw_list, const Clip& clip,
     float x_end = canvas_pos.x + frameToPixel(clip_right);
     // TODO: draw two channels
     float y_top = canvas_pos.y + 0.f;
-    float y_bottom = canvas_pos.y + track_height;
+    float y_bottom = canvas_pos.y + track_height - track_pad;
 
     ImVec2 start(x_start, y_top), end(x_end, y_bottom);
 
@@ -180,13 +181,46 @@ void TimelineView::DrawTrack(Track& track) {
 
     bool modified = false;
 
+    // const float mult = 0.99;
+
     ImGui::PushID(&track);
     ImGui::BeginChild("Track_canvas", ImVec2(0, track_height), 0, ImGuiWindowFlags_HorizontalScrollbar);
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
-    ImVec2 full_canvas_size = ImGui::GetContentRegionAvail();
     ImVec2 mouse_pos = ImGui::GetMousePos();
+
+    ImGui::BeginChild("Track info", ImVec2{track_info_width, track_height}, 0);
+    // === Track Info and controls
+    draw_list->AddRect(canvas_pos, canvas_pos + ImVec2{track_info_width, track_height - track_pad}, 
+                    getGridLineCol());
+    
+    // track name
+    ImGui::PushID(&track.name);
+    ImGui::InputText("", &track.name);
+    ImGui::PopID();
+    // mute
+    ImGui::PushID(&track.mute);
+    ImGui::Checkbox("Mute", &track.mute);
+    ImGui::PopID();
+
+    // gain
+    const float GAIN_MIN = -100;
+    const float GAIN_MAX = +40;
+    ImGui::PushID(&track.gain_db);
+    ImGui::DragFloat("Gain", &track.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
+    ImGui::PopID();
+
+    ImGui::EndChild();
+
+    canvas_pos += ImVec2{track_info_width + track_pad, 0};
+
+
+    // === Timeline part
+    draw_list->AddLine(canvas_pos+ ImVec2{0, track_height - track_pad}, 
+                       canvas_pos + ImVec2{frameToPixel(total_frames), track_height - track_pad},
+                       getGridLineCol());
+
 
     // ===== Drawing clips =====
     for (Clip& clip: track.clips) {
@@ -228,20 +262,28 @@ void TimelineView::DrawTimeline(TimeLine& timeline) {
     bool modified = false;
 
     // Timeline over all available space
-    ImGui::BeginChild("Timeline_canvas", ImVec2(0, 0), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::BeginChild("Timeline_canvas", ImVec2(0, 0), ImGuiChildFlags_Borders, 
+        ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_HorizontalScrollbar);
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     canvas_pos = ImGui::GetCursorScreenPos();
     ImVec2 full_canvas_size = ImGui::GetContentRegionAvail();
-    canvas_width = full_canvas_size.x;
     ImVec2 mouse_pos = ImGui::GetMousePos();
 
+    /*
+    
+    track_info | timeline
+    
+    */
+    ImVec2 field_pos = canvas_pos + ImVec2{track_info_width, 0};
+    ImVec2 field_size = full_canvas_size - ImVec2{track_info_width, 0};
+    field_width = field_size.x;
     // === 0. Resetting interaction
 
     interaction.has_changes = false;
 
     // === 1. Drawing time grid ===
-    DrawTimeGrid(draw_list, canvas_pos, full_canvas_size);
+    DrawTimeGrid(draw_list, field_pos, field_size);
 
 
     // === 2. Drawing tracks
@@ -250,7 +292,7 @@ void TimelineView::DrawTimeline(TimeLine& timeline) {
     }
 
     // === 3. Курсор воспроизведения ===
-    DrawPlayHead(draw_list, timeline, canvas_pos, full_canvas_size);
+    DrawPlayHead(draw_list, timeline, field_pos, field_size);
 
     // === 4. Interaction ========================
 
@@ -304,9 +346,10 @@ void TimelineView::DrawTimeline(TimeLine& timeline) {
     bool keyShift_pressed = ImGui::GetIO().KeyShift;
     float mouseWheel_delta = ImGui::GetIO().MouseWheel;
 
-    if (ImGui::IsWindowHovered() && mouseWheel_delta != 0) {
+    bool hovered = ImRect(field_pos, field_pos + field_size).Contains(mouse_pos);
+    if (hovered && mouseWheel_delta != 0) {
         if (keyCtrl_pressed) {
-            float mouse_x_rel = mouse_pos.x - canvas_pos.x;
+            float mouse_x_rel = mouse_pos.x - field_pos.x;
             zoomAtPixel(mouse_x_rel, mouseWheel_delta > 0 ? 1.1f : 0.9f);
             modified = true;
         } else if (keyShift_pressed) {
