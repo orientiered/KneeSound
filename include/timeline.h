@@ -115,7 +115,7 @@ public:
         clips.push_back(std::move(clip));
     }
 
-    void addClip(Clip& clip) {
+    void addClip(const Clip& clip) {
         PLOG_INFO << "Add clip '" << clip.name << "' [" << &clip << "] to track '" << name << "'";
         PLOG_INFO << "Clip len " << clip.getDurationFrames() << " frames";
         clips.push_back(clip);
@@ -146,6 +146,7 @@ public:
 
     void moveClipToTrack(ClipId_t id, int track_idx);
 
+    ClipId_t addClip(const Clip& clip, int track_idx);
     // std::vector<audio_sample_t>
 
 

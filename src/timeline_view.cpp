@@ -270,6 +270,7 @@ void TimelineView::DrawTimeline(TimeLine& timeline) {
     ImVec2 full_canvas_size = ImGui::GetContentRegionAvail();
     ImVec2 mouse_pos = ImGui::GetMousePos();
 
+
     /*
     
     track_info | timeline
@@ -278,17 +279,20 @@ void TimelineView::DrawTimeline(TimeLine& timeline) {
     ImVec2 field_pos = canvas_pos + ImVec2{track_info_width, 0};
     ImVec2 field_size = full_canvas_size - ImVec2{track_info_width, 0};
     field_width = field_size.x;
+    
     // === 0. Resetting interaction
 
     interaction.has_changes = false;
 
     // === 1. Drawing time grid ===
     DrawTimeGrid(draw_list, field_pos, field_size);
+    
 
 
     // === 2. Drawing tracks
     for (Track& track: timeline.tracks) {
         DrawTrack(track);
+
     }
 
     // === 3. Курсор воспроизведения ===
@@ -341,12 +345,15 @@ void TimelineView::DrawTimeline(TimeLine& timeline) {
         interaction.selected_clip_id = CLIP_NONE;
     }
 
+
     // === 5. Handling scroll and zoom ===
+    // mouse is in timeline zone
+    bool hovered = ImRect(field_pos, field_pos + field_size).Contains(mouse_pos);
+
     bool keyCtrl_pressed = ImGui::GetIO().KeyCtrl;
     bool keyShift_pressed = ImGui::GetIO().KeyShift;
     float mouseWheel_delta = ImGui::GetIO().MouseWheel;
 
-    bool hovered = ImRect(field_pos, field_pos + field_size).Contains(mouse_pos);
     if (hovered && mouseWheel_delta != 0) {
         if (keyCtrl_pressed) {
             float mouse_x_rel = mouse_pos.x - field_pos.x;
@@ -365,6 +372,27 @@ void TimelineView::DrawTimeline(TimeLine& timeline) {
 
 
     ImGui::EndChild();
+
+    // === 6. Drag and drop
+
+    if (hovered && ImGui::BeginDragDropTarget()) {
+        // Проверяем, совпадает ли тип данных
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(POOL_DND)) {
+            AudioSourcePtr data = *(AudioSourcePtr*)payload->Data;
+            // Обработка полученных данных
+            int expected_track_idx = (mouse_pos.y - field_pos.y) / track_height;
+            ma_uint64 start_frame =  pixelToFrame(mouse_pos.x - field_pos.x);
+
+            ClipId_t clip_id = timeline.addClip(Clip(data, start_frame), expected_track_idx);
+
+            // expanding timeline if necessary
+            Clip *clip = timeline.getClipById(clip_id);
+            if (clip->getTimelineEndFrame() > total_frames) {
+                total_frames = clip->getTimelineEndFrame();
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
 }
 
 }

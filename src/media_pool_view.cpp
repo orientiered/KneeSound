@@ -8,7 +8,7 @@ namespace waves {
 
 void MediaPoolView::Draw(Editor& editor) {
     DrawSelectDialog(editor);
-    DrawOpenedFiles(editor);
+    DrawOpenedFiles(editor.playback_state);
 }
 
 void MediaPoolView::DrawSelectDialog(Editor& editor) {
@@ -30,8 +30,6 @@ void MediaPoolView::DrawSelectDialog(Editor& editor) {
 
                 editor.media_pool.push_back(src);
 
-                //TODO:REMOVE
-                editor.timeline.tracks[0].addClip(waves::Clip(src, 0));
             }
         }
         // close
@@ -40,72 +38,91 @@ void MediaPoolView::DrawSelectDialog(Editor& editor) {
 
 }
 
-void MediaPoolView::DrawOpenedFiles(Editor& editor) {
-    int track_idx = 0;
-    SourceIt eraseIt = editor.media_pool.end();
 
-    for (auto it = editor.media_pool.begin(); it != editor.media_pool.end(); it++, track_idx++) {
+void MediaPoolView::DrawFile(PlaybackState& playback_state, SourceIt it, int track_idx, bool &erase) {
+    MediaPool &pool = playback_state.pool;
+    const AudioSourcePtr src = *it;
 
-        MediaPool &pool = editor.media_pool;
-        const AudioSourcePtr src = *it;
-
-        bool playing = editor.playback_state.isPlaying;
-        SourceIt currentTrack = editor.playback_state.currentTrack;
-        bool on_current = currentTrack == it;
+    bool playing = playback_state.isPlaying;
+    SourceIt currentTrack = playback_state.currentTrack;
+    bool on_current = currentTrack == it;
 
 
+    ImGui::PushID(track_idx);
+        if (ImGui::Button("X")) {
+            erase = true;
+        }
+    ImGui::PopID();
+
+    ImGui::SameLine();
+ImGui::Text("%s", src->name.c_str());
+    // drag and drop
+    if (src->valid && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID) ) {
+
+        AudioSourcePtr data = *it; // Sending audio source 
+        ImGui::SetDragDropPayload(POOL_DND, &data, sizeof(AudioSourcePtr));
+        
+        // Displaying name of the payload
+        ImGui::Text("Clip %s", data->name.c_str()); 
+        ImGui::EndDragDropSource();
+    }
+
+    if (!src->valid) {
+
+        ImGui::SameLine();
+        ImGui::Text("Failed to decode");
+
+    } else {
+        const char *button_text =
+            (on_current && playing) ? "Stop" : "Play";
+
+        ImGui::SameLine();
         ImGui::PushID(track_idx);
-            if (ImGui::Button("X")) {
-                eraseIt = it;
+            if (ImGui::Button(button_text)) {
+                if (!on_current) {
+                    playback_state.setTrack(it);
+                    playback_state.setPlaying(true);
+                } else {
+                    playback_state.setPlaying(!playing);
+                }
             }
         ImGui::PopID();
 
-        ImGui::SameLine();
-        ImGui::Text("%s", src->name.c_str());
+        if (on_current) {
+            // ImGui::SameLine();
+            int slider_frame = playback_state.getCurrentTrackPosInFrames();
 
-        if (!src->valid) {
-
-            ImGui::SameLine();
-            ImGui::Text("Failed to decode");
-
-        } else {
-            const char *button_text =
-                (on_current && playing) ? "Stop" : "Play";
-
-            ImGui::SameLine();
-            ImGui::PushID(track_idx);
-                if (ImGui::Button(button_text)) {
-                    if (!on_current) {
-                        editor.playback_state.setTrack(it);
-                        editor.playback_state.setPlaying(true);
-                    } else {
-                        editor.playback_state.setPlaying(!playing);
-                    }
-                }
-            ImGui::PopID();
-
-            if (on_current) {
-                // ImGui::SameLine();
-                int slider_frame = editor.playback_state.getCurrentTrackPosInFrames();
-
-                if (ImGui::SliderInt("Frame", &slider_frame, 0, editor.playback_state.getCurrentTrackLenInFrames())
-                    && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                    editor.playback_state.setCurrentTrackPosInFrames(slider_frame);
-                }
-
+            if (ImGui::SliderInt("Frame", &slider_frame, 0, playback_state.getCurrentTrackLenInFrames())
+                && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                playback_state.setCurrentTrackPosInFrames(slider_frame);
             }
 
         }
 
     }
+}
 
-    if (eraseIt != editor.media_pool.end()) {
-        if (editor.playback_state.currentTrack == eraseIt) {
-            editor.playback_state.setPlaying(false);
-            editor.playback_state.setTrack(editor.media_pool.end());
+void MediaPoolView::DrawOpenedFiles(PlaybackState& playback_state) {
+    int track_idx = 0;
+    MediaPool& media_pool = playback_state.pool;
+    SourceIt eraseIt = media_pool.end();
+
+    for (auto it = media_pool.begin(); it != media_pool.end(); it++, track_idx++) {
+        bool erase = false;
+        DrawFile(playback_state, it, track_idx, erase);
+        if (erase) 
+            eraseIt = it;
+        
+    }
+
+    if (eraseIt != media_pool.end()) {
+        if (playback_state.currentTrack == eraseIt) {
+            playback_state.setPlaying(false);
+            playback_state.setTrack(media_pool.end());
         }
 
-        editor.media_pool.erase(eraseIt);
+        PLOG_INFO << "Removed source " << eraseIt->get()->name << " from media pool";
+        media_pool.erase(eraseIt);
     }
 }
 

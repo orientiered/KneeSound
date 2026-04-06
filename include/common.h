@@ -27,6 +27,8 @@ namespace waves {
 const int INNER_CHANNELS = 2;
 const int INNER_SAMPLE_RATE = 48000;
 
+const char * const POOL_DND = "POOL_DND_TYPE";
+
 }
 
 using audio_sample_t = float;

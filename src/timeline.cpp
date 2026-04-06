@@ -63,6 +63,15 @@ void TimeLine::moveClipToTrack(ClipId_t id, int track_idx) {
 
 }
 
+ClipId_t TimeLine::addClip(const Clip& clip, int track_idx) {
+    if (track_idx < 0) return CLIP_NONE;
+    if (track_idx >= tracks.size())
+        tracks.resize(track_idx+1);
+
+    tracks[track_idx].addClip(clip);
+
+    return clip.id;
+}
 
 
 }
