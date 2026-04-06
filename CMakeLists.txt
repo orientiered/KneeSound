@@ -32,7 +32,7 @@ file(COPY lib_deps/miniaudio/miniaudio.h
      DESTINATION ../include)
 
 
-set(PROJ_SRC src/main.cpp src/miniaudio.cpp src/editor.cpp src/timeline_view.cpp src/timeline.cpp)
+set(PROJ_SRC src/main.cpp src/miniaudio.cpp src/editor.cpp src/timeline_view.cpp src/timeline.cpp src/media_pool_view.cpp)
 
 add_executable(${EXEC_NAME} ${PROJ_SRC} lib_deps/ImGuiFileDialog/ImGuiFileDialog.cpp)
 target_include_directories(${EXEC_NAME} PRIVATE include lib_deps/ImGuiFileDialog)

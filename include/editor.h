@@ -8,6 +8,7 @@
 #include "miniaudio_utils.h"
 #include "timeline.h"
 #include "timeline_view.h"
+#include "media_pool_view.h"
 
 namespace waves {
 
@@ -95,9 +96,12 @@ class Editor {
 public:
 
     MaAudioPlayer player;
+
     MediaPool media_pool;
     PlaybackState playback_state;
 
+    MediaPoolView mp_view;
+    
     TimelineView tl_view{static_cast<ma_uint64>(1e6), 1e-2};
     TimeLine timeline;
 
