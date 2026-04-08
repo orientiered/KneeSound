@@ -15,6 +15,9 @@
 
 void handle_debug_controller();
 
+// GLOBAL DEBUG FLAGS
+DebugFlags g_debug_flags;
+
 int main() {
     plog::init<plog::TxtFormatter>(plog::debug, plog::streamStdErr);
 
@@ -57,14 +60,14 @@ int main() {
 
     while (window.isOpen())
     {
-        PLOG_VERBOSE << "Render cycle start";
+        PLOG_VERBOSE_IF(g_debug_flags.render_loop_logs) << "Render cycle start";
         // if (font)
         //     ImGui::PushFont(font);
 
 
         while (const auto event = window.pollEvent())
         {
-            PLOG_VERBOSE << "Processing event";
+            PLOG_VERBOSE_IF(g_debug_flags.render_loop_logs) << "Processing event";
             ImGui::SFML::ProcessEvent(window, *event);
 
             if (event->is<sf::Event::Closed>())
@@ -74,24 +77,13 @@ int main() {
             }
         }
 
-        PLOG_VERBOSE << "Calling imgui update";
+        PLOG_VERBOSE_IF(g_debug_flags.render_loop_logs) << "Calling imgui update";
         ImGui::SFML::Update(window, deltaClock.restart());
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
+        // ================== EDITOR DRAW ===========================
 
-        // =================== MAIN WINDOW ===================
-        ImGui::Begin("Audio editor", NULL, 0);
-
-        editor.tl_view.DrawTimeline(editor.timeline);
-
-        ImGui::End();
-
-        // =================== MEDIA POOL =====================
-        ImGui::Begin("Media pool");
-
-        editor.mp_view.Draw(editor);
-
-        ImGui::End(); // media pool
+       editor.Draw();
 
         // ================== DEBUG INFO ============================
         handle_debug_controller();
@@ -130,6 +122,9 @@ void handle_debug_controller() {
     if (ImGui::ListBox("Debug severity", &severity_idx, sev_strings, 3)) {
         plog::get()->setMaxSeverity(sevs[severity_idx]);
     }
+
+    ImGui::Checkbox("Log main render loop", &g_debug_flags.render_loop_logs);
+    ImGui::Checkbox("Log audio callback", &g_debug_flags.callback_logs);
 
     ImGui::Checkbox("Show demo window", &show_imgui_demo);
 

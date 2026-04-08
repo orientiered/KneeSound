@@ -22,6 +22,15 @@
 #include <plog/Initializers/ConsoleInitializer.h>
 
 
+struct DebugFlags {
+    bool render_loop_logs = false;
+    bool callback_logs = false;
+};
+
+extern DebugFlags g_debug_flags;
+
+/* =============== WAVES constants ================ */
+
 namespace waves {
 
 const int INNER_CHANNELS = 2;

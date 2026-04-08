@@ -18,7 +18,21 @@ AudioSourcePtr decode_audio_from_file(const std::string& name, const std::string
     return std::make_shared<AudioSource>(result);
 }
 
+void Editor::Draw() {
+    // =================== MAIN WINDOW ===================
+    ImGui::Begin("Audio editor", NULL, 0);
 
+    tl_view.DrawTimeline(playback_state, timeline);
+
+    ImGui::End();
+
+    // =================== MEDIA POOL =====================
+    ImGui::Begin("Media pool");
+
+    mp_view.Draw(*this);
+
+    ImGui::End(); // media pool
+}
 
 
 

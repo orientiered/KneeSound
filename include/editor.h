@@ -23,12 +23,11 @@ public:
     MaAudioPlayer player;
 
     MediaPool media_pool;
+    TimeLine timeline;
     PlaybackState playback_state;
 
     MediaPoolView mp_view;
-
     TimelineView tl_view{static_cast<ma_uint64>(1e6), 1e-2};
-    TimeLine timeline;
 
     static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
         PlaybackState *playback_state = reinterpret_cast<PlaybackState*>(pDevice->pUserData);
@@ -39,11 +38,13 @@ public:
 
     Editor():
         player(ma_format_f32, INNER_CHANNELS, INNER_SAMPLE_RATE, &Editor::data_callback, &playback_state),
-        media_pool(), playback_state(media_pool)
+        media_pool(), playback_state(media_pool, timeline)
     {
         timeline.tracks.push_back(Track());
         PLOG_INFO << "Editor class initialized";
     }
+
+    void Draw();
 
     ~Editor() {
 

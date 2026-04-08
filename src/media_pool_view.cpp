@@ -55,7 +55,7 @@ void MediaPoolView::DrawFile(PlaybackState& playback_state, SourceIt it, int tra
     ImGui::PopID();
 
     ImGui::SameLine();
-ImGui::Text("%s", src->name.c_str());
+    ImGui::Text("%s", src->name.c_str());
     // drag and drop
     if (src->valid && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID) ) {
 
@@ -79,6 +79,8 @@ ImGui::Text("%s", src->name.c_str());
         ImGui::SameLine();
         ImGui::PushID(track_idx);
             if (ImGui::Button(button_text)) {
+                //TODO: refactor
+                playback_state.src = POOL_SRC;
                 if (!on_current) {
                     playback_state.setTrack(it);
                     playback_state.setPlaying(true);

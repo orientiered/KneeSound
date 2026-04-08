@@ -2,10 +2,117 @@
 
 namespace waves {
 
+
+/* ================= Clip     =================== */
+
+// Renders frames to out array, ADDITIVELY 
+// Doesn't write zeros
+void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_uint64 start_frame, ma_uint64 frame_count) {
+
+    if (muted) return;
+
+    ma_uint64 out_start_i = (start_frame > timeline_start_frame) ? 
+                            0 : timeline_start_frame - start_frame;
+    
+    ma_uint64 out_end_i = ((start_frame + frame_count) > getTimelineEndFrame()) ? 
+                            getTimelineEndFrame() - start_frame :
+                            frame_count;
+
+    if (out_start_i >= out_end_i) return;
+
+    ma_uint64 src_i = *timelineToSourceFrame(start_frame + out_start_i);
+
+
+
+    float gain = dbToGain(gain_db);
+    PLOG_VERBOSE_IF(g_debug_flags.callback_logs) <<
+        "Rendering clip " << name << ": si " << out_start_i << " ei " << out_end_i << " srci " << src_i << 
+        " gain " << gain;
+    //TODO: clip pan 
+    for (ma_uint64 out_i = out_start_i; out_i < out_end_i; out_i++, src_i++) {
+
+        for (int ch_idx = 0; ch_idx < INNER_CHANNELS; ch_idx++) {
+            float sample = source->pcmData[src_i*INNER_CHANNELS + ch_idx];
+            out[out_i*INNER_CHANNELS + ch_idx] += sample * gain;
+        }
+
+    }
+    
+}
+
+/* ================= Track    =================== */
+
+std::vector<audio_sample_t> &Track::renderFrames(ma_uint64 start_frame, ma_uint64 frame_count) {
+
+    //! LOOKS LIKE TERRIBLE IDEA
+    if (frame_count * INNER_CHANNELS > rendering_buffer.size()) {
+        rendering_buffer.resize(frame_count * INNER_CHANNELS);
+    }
+    
+    // clearing buffer
+    std::fill(rendering_buffer.begin(), rendering_buffer.begin() + frame_count * INNER_CHANNELS, 0);
+
+    // early out when track is muted
+    if (mute) return rendering_buffer;
+
+    // rendering clips
+    for (int clip_idx = 0; clip_idx < clips.size(); clip_idx++) {
+        Clip& clip = clips[clip_idx];
+        clip.renderFrames(rendering_buffer, start_frame, frame_count);
+    }
+
+    // applying effects (gain)
+    float gain = dbToGain(gain_db);
+
+    for (int i = 0; i < frame_count * INNER_CHANNELS; i++) {
+        rendering_buffer[i] *= gain;
+        // PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "track amp: " << rendering_buffer[i]*gain;
+
+    }
+
+    return rendering_buffer;
+}
+
+
+/* ================= Timeline =================== */
+
+std::vector<audio_sample_t>& TimeLine::renderFrames(ma_uint64 start_frame, ma_uint64 frame_count) {
+
+    //! LOOKS LIKE TERRIBLE IDEA
+    if (frame_count * INNER_CHANNELS > rendering_buffer.size()) {
+        rendering_buffer.resize(frame_count * INNER_CHANNELS);
+    }
+
+    // clearing buffer
+    std::fill(rendering_buffer.begin(), rendering_buffer.begin() + frame_count * INNER_CHANNELS, 0);
+
+
+    float gain = dbToGain(gain_db);
+
+
+    float mean_ampl = 0;
+
+    for (int track_idx = 0; track_idx < tracks.size(); track_idx++) {
+        auto &buffer = tracks[track_idx].renderFrames(start_frame, frame_count);
+        for (int i = 0; i < frame_count * INNER_CHANNELS; i++) {
+            rendering_buffer[i] += buffer[i] * gain;
+            PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "timeline_amp: "<< rendering_buffer[i] <<
+                                                            " track_amp: " << buffer[i];
+            mean_ampl += std::fabs(rendering_buffer[i]);
+        }   
+    }
+
+    mean_ampl /= frame_count;
+    PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "mean_ampl = " << mean_ampl;
+    
+
+    return rendering_buffer;
+}
+
+
 bool TimeLine::isValidClipId(ClipId_t id) {
     return getTrackAndClipIdx(id) ? true: false;
 }
-
 
 std::optional<ClipLoc> TimeLine::getTrackAndClipIdx(ClipId_t id) {
     for (size_t track_idx = 0; track_idx < tracks.size(); track_idx++) {

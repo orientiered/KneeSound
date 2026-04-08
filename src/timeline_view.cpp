@@ -3,6 +3,8 @@
 #include "timeline_view.h"
 #include "imgui_misc.h"
 
+#include "playback_state.h"
+
 namespace waves {
 
 //! Assuming that clip_timeline frames is visible
@@ -258,7 +260,7 @@ void TimelineView::DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline,
 }
 
 
-void TimelineView::DrawTimeline(TimeLine& timeline) {
+void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
     bool modified = false;
 
     // Timeline over all available space
@@ -299,6 +301,10 @@ void TimelineView::DrawTimeline(TimeLine& timeline) {
     DrawPlayHead(draw_list, timeline, field_pos, field_size);
 
     // === 4. Interaction ========================
+
+    // mouse is in timeline zone
+    bool hovered = ImRect(field_pos, field_pos + field_size).Contains(mouse_pos);
+
 
     bool clicked = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
 
@@ -345,10 +351,11 @@ void TimelineView::DrawTimeline(TimeLine& timeline) {
         interaction.selected_clip_id = CLIP_NONE;
     }
 
+    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Space)) {
+        playback.handleToggleFromTimeline();
+    }
 
     // === 5. Handling scroll and zoom ===
-    // mouse is in timeline zone
-    bool hovered = ImRect(field_pos, field_pos + field_size).Contains(mouse_pos);
 
     bool keyCtrl_pressed = ImGui::GetIO().KeyCtrl;
     bool keyShift_pressed = ImGui::GetIO().KeyShift;

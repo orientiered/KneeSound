@@ -9,6 +9,9 @@
 
 namespace waves {
 
+// Predifiniiton
+class PlaybackState;
+
 struct TimelineInteraction {
     enum class Mode { None, Selecting, DraggingClip, ResizingClip } mode;
     ClipId_t hovered_clip_id = CLIP_NONE; // Currently hovered clip
@@ -168,7 +171,7 @@ public:
     void DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline, ImVec2 canvas_pos, ImVec2 size);
     void DrawTrack(Track& track);
 
-    void DrawTimeline(TimeLine& timeline);
+    void DrawTimeline(PlaybackState& playback, TimeLine& timeline);
 
 };
 
