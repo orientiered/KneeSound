@@ -90,20 +90,14 @@ std::vector<audio_sample_t>& TimeLine::renderFrames(ma_uint64 start_frame, ma_ui
     float gain = dbToGain(gain_db);
 
 
-    float mean_ampl = 0;
-
     for (int track_idx = 0; track_idx < tracks.size(); track_idx++) {
         auto &buffer = tracks[track_idx].renderFrames(start_frame, frame_count);
         for (int i = 0; i < frame_count * INNER_CHANNELS; i++) {
             rendering_buffer[i] += buffer[i] * gain;
             PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "timeline_amp: "<< rendering_buffer[i] <<
                                                             " track_amp: " << buffer[i];
-            mean_ampl += std::fabs(rendering_buffer[i]);
         }   
     }
-
-    mean_ampl /= frame_count;
-    PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "mean_ampl = " << mean_ampl;
     
 
     return rendering_buffer;

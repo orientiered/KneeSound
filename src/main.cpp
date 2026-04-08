@@ -49,6 +49,12 @@ int main() {
 
     PLOG_ERROR_IF(!ImGui::SFML::UpdateFontTexture()) << "Failed to update font textures";
 
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImColor(ImVec4(0.15f, 0.15f, 0.15f, 0.94f)).Value);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImColor(ImVec4(0.00f, 0.00f, 0.00f, 0.00f)).Value);
+    ImGui::PushStyleColor(ImGuiCol_TitleBg, ImColor(ImVec4(0.10f, 0.11f, 0.11f, 1.00f)).Value);
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImColor(ImVec4(0.16f, 0.29f, 0.48f, 1.00f)).Value);
+    ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, ImColor(ImVec4(0.00f, 0.00f, 0.00f, 0.51f)).Value);
+
     // clock for frame updates
     sf::Clock deltaClock;
 
@@ -106,7 +112,7 @@ int main() {
 void handle_debug_controller() {
     static int severity_idx = 0;
     static bool show_imgui_demo = false;
-
+    static bool show_style_editor = false;
     // ======= Editor Debug  =====
     ImGui::Begin("Debug settings");
 
@@ -127,6 +133,7 @@ void handle_debug_controller() {
     ImGui::Checkbox("Log audio callback", &g_debug_flags.callback_logs);
 
     ImGui::Checkbox("Show demo window", &show_imgui_demo);
+    ImGui::Checkbox("Show style editor", &show_style_editor);
 
 
     ImGui::End();
@@ -135,6 +142,11 @@ void handle_debug_controller() {
     if (show_imgui_demo) {
         ImGui::ShowDemoWindow();
     }
+
+    if (show_style_editor) {
+        ImGui::ShowStyleEditor();
+    }
+
 }
 
 

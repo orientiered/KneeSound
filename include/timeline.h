@@ -19,6 +19,7 @@ inline float clampSample(float sample, float threshold = 0.99f) {
     return sample;
 }
 
+static const size_t START_RENDER_BUFFER_SIZE = 4096; 
 
 struct AudioSource {
     bool valid = false;
@@ -145,7 +146,7 @@ public:
         clips.push_back(clip);
     }
 
-    Track() : name("None"), rendering_buffer(4096*INNER_CHANNELS) {}
+    Track() : name("None"), rendering_buffer(START_RENDER_BUFFER_SIZE*INNER_CHANNELS) {}
 };
 
 struct ClipLoc {
@@ -161,7 +162,11 @@ public:
 
     std::vector<audio_sample_t> rendering_buffer;
 
+
+    TimeLine(): rendering_buffer(START_RENDER_BUFFER_SIZE * INNER_CHANNELS) {}
+
     float gain_db = 0; // master gain
+    
     // === Methods ===
 
     std::vector<audio_sample_t>& renderFrames(ma_uint64 start_frame, ma_uint64 frame_count);

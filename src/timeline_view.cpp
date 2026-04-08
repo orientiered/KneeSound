@@ -38,7 +38,7 @@ void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const waves::Clip& cl
         float sample = clip.source->getMonoSampleAmplitude(f);
         float y = center_y - sample * (height / 2) * 0.9f; // 0.8 для отступа
 
-        draw_list->AddLine(prev_point, ImVec2(x, y), IM_COL32(255, 255, 255, 100), 2.f);
+        draw_list->AddLine(prev_point, ImVec2(x, y), col_waveform, 2.f);
         prev_point = ImVec2(x, y);
     }
 }
@@ -60,8 +60,8 @@ void TimelineView::DrawClip(ImDrawList* draw_list, const Clip& clip,
     ImVec2 start(x_start, y_top), end(x_end, y_bottom);
 
     // Цвета в зависимости от состояния
-    ImU32 color_base = is_selected ? IM_COL32(100, 149, 237, 255)  // cornflower blue
-                                   : IM_COL32(70, 130, 180, 200);   // steel blue
+    ImU32 color_base = is_selected ? col_clip_selected  
+                                   : col_clip_base;   
     ImU32 color_border = is_hovered ? IM_COL32(255, 255, 255, 255)
                                     : IM_COL32(255, 255, 255, 150);
 
@@ -69,7 +69,7 @@ void TimelineView::DrawClip(ImDrawList* draw_list, const Clip& clip,
     draw_list->AddRectFilled(start, end, color_base, 3.0f);
     draw_list->AddRect(start, end, color_border, 3.0f);
 
-    // Drawing clip labe;
+    // Drawing clip label
     std::string label = clip.name.empty() ? "Clip" : clip.name;
     draw_list->AddText(ImVec2(x_start + 4, y_top + 4), IM_COL32(255, 255, 255, 255), label.c_str());
 
@@ -85,23 +85,53 @@ void TimelineView::DrawClip(ImDrawList* draw_list, const Clip& clip,
 void TimelineView::DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2 canvas_size) {
 
     float step = getBeatStepInPixels();
+    float minor_step = step / grid_minor_lines_per_major;
 
     auto [beat_idx, current_rel_x] = getNearestBeatInPixels();
     float y_start = canvas_pos.y;
     float y_end   = canvas_pos.y + canvas_size.y;
 
+    int visible_major_lines = (canvas_size.x - current_rel_x) / step;
+    
+    bool high_scale = visible_major_lines > grid_line_count_limit; // showing only major lines
+
+    int minor_counter = 0;
+
+    // finding start position
+    current_rel_x -= step;
+    while (current_rel_x < 0) {
+        current_rel_x += minor_step;
+        minor_counter = (minor_counter+1) % grid_minor_lines_per_major;
+    }
+
     while (current_rel_x < canvas_size.x) {
         float current_x = canvas_pos.x + current_rel_x;
-        draw_list->AddLine(ImVec2{current_x, y_start}, ImVec2{current_x, y_end}, getGridLineCol());
 
-        if (beat_idx % time_signature == 0) {
-            std::string beat_str = std::to_string(beat_idx);
-            draw_list->AddText(ImVec2{current_x, y_start}, getGridLineCol(), beat_str.c_str());
+        if (high_scale) 
+            draw_list->AddLine(ImVec2{current_x, y_start}, ImVec2{current_x, y_end},
+                col_grid_line, thickness_grid_line_minor);
+        else {
+            float thick = (minor_counter == 0) ? thickness_grid_line_major: thickness_grid_line_minor;
+            draw_list->AddLine(ImVec2{current_x, y_start}, ImVec2{current_x, y_end},
+                col_grid_line, thick);
         }
 
-        current_rel_x += step;
-        beat_idx++;
+        if ((minor_counter == 0 || high_scale) && beat_idx % time_signature == 0) {
+            std::string beat_str = std::to_string(beat_idx);
+            draw_list->AddText(ImVec2{current_x, y_start}, col_grid_line_text, beat_str.c_str());
+        }
+
+        if (high_scale) {
+            current_rel_x += step;
+            beat_idx++;
+        } else {
+            if (minor_counter == 0) 
+                beat_idx++;
+            minor_counter = (minor_counter + 1) % grid_minor_lines_per_major;
+            current_rel_x += minor_step;
+        }
     }
+
 }
 
 bool TimelineView::HandleClipInteraction(const Clip& clip,
@@ -165,7 +195,7 @@ bool TimelineView::HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id, 
     auto  current_track_idx = timeline.getTrackIdx(clip_id);
     if (!current_track_idx) return false;
 
-    int expected_track_idx = (mouse_pos.y - canvas_pos.y) / track_height;
+    int expected_track_idx = (mouse_pos.y - canvas_pos.y - grid_line_header) / track_height;
 
     if (expected_track_idx < 0 || expected_track_idx == *current_track_idx) return false;
 
@@ -179,9 +209,9 @@ bool TimelineView::HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id, 
 
 /* ======================== DRAWING ======================================= */
 
-void TimelineView::DrawTrack(Track& track) {
+void TimelineView::DrawTrack(Track& track, bool parity) {
 
-    bool modified = false;
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, parity ? col_track_bg_even : col_track_bg_odd);
 
     // const float mult = 0.99;
 
@@ -192,10 +222,11 @@ void TimelineView::DrawTrack(Track& track) {
     ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
     ImVec2 mouse_pos = ImGui::GetMousePos();
 
+    /* ====== TRACK INFO AND CONTROLS ====================== */
     ImGui::BeginChild("Track info", ImVec2{track_info_width, track_height}, 0);
-    // === Track Info and controls
-    draw_list->AddRect(canvas_pos, canvas_pos + ImVec2{track_info_width, track_height - track_pad}, 
-                    getGridLineCol());
+
+    // draw_list->AddRect(canvas_pos, canvas_pos + ImVec2{track_info_width, track_height - track_pad}, 
+    //                 getGridLineCol());
     
     // track name
     ImGui::PushID(&track.name);
@@ -214,15 +245,11 @@ void TimelineView::DrawTrack(Track& track) {
     ImGui::PopID();
 
     ImGui::EndChild();
+    /* ========================================= */
 
     canvas_pos += ImVec2{track_info_width + track_pad, 0};
 
-
     // === Timeline part
-    draw_list->AddLine(canvas_pos+ ImVec2{0, track_height - track_pad}, 
-                       canvas_pos + ImVec2{frameToPixel(total_frames), track_height - track_pad},
-                       getGridLineCol());
-
 
     // ===== Drawing clips =====
     for (Clip& clip: track.clips) {
@@ -236,8 +263,10 @@ void TimelineView::DrawTrack(Track& track) {
 
     }
 
+    ImGui::PopStyleColor();
     ImGui::EndChild();
     ImGui::PopID();
+
 }
 
 void TimelineView::DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline, 
@@ -255,7 +284,7 @@ void TimelineView::DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline,
         float playhead_x = canvas_pos.x + frameToPixel(playhead_frame);
         draw_list->AddLine(ImVec2(playhead_x, canvas_pos.y),
                           ImVec2(playhead_x, canvas_pos.y + size.y),
-                          playhead_col, 2.0f);
+                          col_playhead, 2.0f);
     }   
 }
 
@@ -286,16 +315,17 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
 
     interaction.has_changes = false;
 
-    // === 1. Drawing time grid ===
-    DrawTimeGrid(draw_list, field_pos, field_size);
-    
-
-
-    // === 2. Drawing tracks
-    for (Track& track: timeline.tracks) {
-        DrawTrack(track);
+    // === 1. Drawing tracks
+    ImGui::SetCursorScreenPos(canvas_pos + ImVec2{0,grid_line_header});
+    for (int idx = 0; idx < timeline.tracks.size(); idx++) {
+        DrawTrack(timeline.tracks[idx], idx%2);
 
     }
+
+    ImGui::SetCursorScreenPos(canvas_pos);
+    // === 2. Drawing time grid ===
+    DrawTimeGrid(draw_list, field_pos, field_size);
+    
 
     // === 3. Курсор воспроизведения ===
     DrawPlayHead(draw_list, timeline, field_pos, field_size);
@@ -323,7 +353,7 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
             //TODO: add interaction to history
         }
         interaction.mode = TimelineInteraction::Mode::None;
-        // PLOG_DEBUG << "Timeline interaction stop";
+        PLOG_DEBUG << "Timeline interaction stop";
     }
 
     // Dragging handling
@@ -351,7 +381,8 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
         interaction.selected_clip_id = CLIP_NONE;
     }
 
-    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Space)) {
+    // Play/pause
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Space)) {
         playback.handleToggleFromTimeline();
     }
 

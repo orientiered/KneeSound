@@ -35,8 +35,24 @@ class TimelineView {
 
     ma_uint64 scroll_frame;      // кадр, соответствующий левому краю видимой области
 
-    ImU32 grid_line_col = IM_COL32(0x55, 0x6b, 0xa3, 255);
-    ImU32 playhead_col  = IM_COL32(255, 0, 0, 255);
+    ImU32 col_waveform      = IM_COL32(255, 255, 255, 100);
+    ImU32 col_clip_selected = IM_COL32(170, 190, 170, 220); 
+    ImU32 col_clip_base     = IM_COL32(150, 160, 150, 180); 
+
+    ImU32 col_track_bg_odd  = IM_COL32(80, 80, 80, 200); 
+    ImU32 col_track_bg_even = IM_COL32(60, 60, 60, 200);
+
+    ImU32 col_grid_line = IM_COL32(10, 10, 10, 255);
+    ImU32 col_grid_line_text = IM_COL32(200, 200, 200, 255);
+    float thickness_grid_line_major = 3.f;
+    float thickness_grid_line_minor = 1.f;
+    int   grid_line_count_limit = 10;
+    int   grid_minor_lines_per_major = 4;
+
+    float grid_line_header = 50.f; 
+
+    ImU32 col_playhead  = IM_COL32(209, 120, 5, 255);
+
     float beats_per_second = 2.f;
     int   time_signature = 4;
 
@@ -104,7 +120,7 @@ public:
     }
 
     ImU32 getGridLineCol() const {
-        return grid_line_col;
+        return col_grid_line;
     }
 
     ma_uint64 getBeatStepInFrames() const {
@@ -169,7 +185,7 @@ public:
                 ImVec2 canvas_pos, bool is_selected, bool is_hovered);
 
     void DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline, ImVec2 canvas_pos, ImVec2 size);
-    void DrawTrack(Track& track);
+    void DrawTrack(Track& track, bool parity);
 
     void DrawTimeline(PlaybackState& playback, TimeLine& timeline);
 
