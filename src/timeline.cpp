@@ -7,20 +7,36 @@ namespace waves {
 
 // Renders frames to out array, ADDITIVELY 
 // Doesn't write zeros
+
+std::ostream& operator<<(std::ostream& os, const Clip& clip) {
+    os << "Clip '" << clip.name << "'[" << &clip << "][id:" << clip.id << "] dump:\n"
+       << "audio source " << clip.source << "\n"
+       << "Source boundaries: [" << clip.source_start_frame << ", " << clip.source_end_frame << ")\n"
+       << "Timeline start frame: " << clip.timeline_start_frame << "\n"
+       << "Gain: " << clip.gain_db << " Muted: " << clip.muted << " Pan: " << clip.pan; 
+    return os;
+}
+
 void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_uint64 start_frame, ma_uint64 frame_count) {
 
     if (muted) return;
 
-    ma_uint64 out_start_i = (start_frame > timeline_start_frame) ? 
+    ma_int64 out_start_i = (start_frame >= timeline_start_frame) ? 
                             0 : timeline_start_frame - start_frame;
     
-    ma_uint64 out_end_i = ((start_frame + frame_count) > getTimelineEndFrame()) ? 
+    ma_int64 out_end_i = ((start_frame + frame_count) > getTimelineEndFrame()) ? 
                             getTimelineEndFrame() - start_frame :
                             frame_count;
 
     if (out_start_i >= out_end_i) return;
 
-    ma_uint64 src_i = *timelineToSourceFrame(start_frame + out_start_i);
+    auto src_i_opt = timelineToSourceFrame(start_frame + out_start_i);
+    if (!src_i_opt) {
+        PLOG_ERROR << "Invalid source start frame index";
+        PLOG_ERROR << *this << "\n"
+                   << out_start_i << " " << out_end_i << "\n";
+    }
+    ma_uint64 src_i = *src_i_opt;
 
 
 
@@ -38,6 +54,22 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_uint64 start_frame,
 
     }
     
+}
+
+std::optional<Clip> Clip::cut(ma_uint64 timeline_pos) {
+    PLOG_DEBUG << "Cutting clip " << id << " on pos " << timeline_pos;
+    std::optional<ma_uint64> source_pos = timelineToSourceFrame(timeline_pos);
+    // if cut position is not in clip, do not cut
+    if (!source_pos) return std::nullopt;
+
+    Clip new_clip = copy();
+    new_clip.timeline_start_frame = timeline_pos;
+    new_clip.source_end_frame = source_end_frame;
+    new_clip.source_start_frame = *source_pos;
+
+    source_end_frame = *source_pos;
+
+    return new_clip;
 }
 
 /* ================= Track    =================== */
@@ -128,16 +160,32 @@ Clip *TimeLine::getClipById(ClipId_t id) {
     return nullptr;
 }
 
-void TimeLine::removeClipById(ClipId_t id) {
 
-    for (Track& track: tracks) {
-        for (auto clip_it = track.clips.begin(); clip_it != track.clips.end(); clip_it++ ) {
-            if (clip_it -> id == id) {
-                track.clips.erase(clip_it);
-                return;
-            }
-        }
+void TimeLine::removeClipByLoc(std::mutex &mtx, ClipLoc loc) {
+    // invalid loc
+    if (tracks.size() <= loc.track_idx) {
+        return;
     }
+
+    if (tracks[loc.track_idx].clips.size() <= loc.clip_idx) {
+        return;
+    }
+
+    // Synchonized deletion
+    mtx.lock();
+
+    std::vector<Clip> &clips = tracks[loc.track_idx].clips;
+    clips.erase(clips.begin() + loc.clip_idx);
+
+    mtx.unlock();
+}
+
+
+void TimeLine::removeClipById(std::mutex &mtx, ClipId_t id) {
+
+    auto clipLoc = getTrackAndClipIdx(id);
+    if (clipLoc) return removeClipByLoc(mtx, *clipLoc);
+
 }
 
 std::optional<size_t> TimeLine::getTrackIdx(ClipId_t id) {
@@ -146,7 +194,7 @@ std::optional<size_t> TimeLine::getTrackIdx(ClipId_t id) {
     else return std::nullopt;
 }
 
-void TimeLine::moveClipToTrack(ClipId_t id, int track_idx) {
+void TimeLine::moveClipToTrack(std::mutex &mtx, ClipId_t id, int track_idx) {
     if (track_idx < 0) return;
 
     auto loc = getTrackAndClipIdx(id);
@@ -160,9 +208,9 @@ void TimeLine::moveClipToTrack(ClipId_t id, int track_idx) {
 
     tracks[track_idx].addClip(old_clips[clip_i]);
 
-    old_clips.erase(old_clips.begin() + clip_i);
-
+    removeClipByLoc(mtx, *loc);
 }
+
 
 ClipId_t TimeLine::addClip(const Clip& clip, int track_idx) {
     if (track_idx < 0) return CLIP_NONE;

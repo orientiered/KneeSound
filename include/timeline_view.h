@@ -172,7 +172,7 @@ public:
                            ImVec2 canvas_pos, ImVec2 mouse_pos);
 
     bool HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_delta);
-    bool HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_pos);
+    bool HandleVerticalClipDrag(std::mutex &mtx, TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_pos);
 
     // ======== DRAWING ==============
     void DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,

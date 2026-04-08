@@ -71,13 +71,22 @@ void TimelineView::DrawClip(ImDrawList* draw_list, const Clip& clip,
 
     // Drawing clip label
     std::string label = clip.name.empty() ? "Clip" : clip.name;
-    draw_list->AddText(ImVec2(x_start + 4, y_top + 4), IM_COL32(255, 255, 255, 255), label.c_str());
+
+    ImVec2 text_size = ImGui::CalcTextSize(label.c_str());
+
+    if (text_size.x < (x_end - x_start))
+        draw_list->AddText(start + ImVec2{4,4}, IM_COL32(255, 255, 255, 255), label.c_str());
+
+
+    float text_height = ImGui::GetTextLineHeight();
+    draw_list->AddLine(ImVec2{x_start,y_top + 4 + text_height},
+                       ImVec2{x_end,  y_top + 4 + text_height}, color_border, 1);
 
     // Drawing waveform
     if (clip.source && (x_end - x_start) > 20) {
         DrawMiniWaveform(draw_list, clip,
-                canvas_pos + ImVec2{0, ImGui::GetTextLineHeight()},
-                track_height - ImGui::GetTextLineHeight(),
+                canvas_pos + ImVec2{0, text_height},
+                track_height - text_height,
                 {clip_left, clip_right});
     }
 }
@@ -191,7 +200,7 @@ bool TimelineView::HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id
     return false;
 }
 
-bool TimelineView::HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_pos) {
+bool TimelineView::HandleVerticalClipDrag(std::mutex &mtx, TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_pos) {
     auto  current_track_idx = timeline.getTrackIdx(clip_id);
     if (!current_track_idx) return false;
 
@@ -202,7 +211,7 @@ bool TimelineView::HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id, 
     PLOG_DEBUG << "Moving clip " << clip_id << " from track " << *current_track_idx 
                << " to track " << expected_track_idx;
 
-    timeline.moveClipToTrack(clip_id, expected_track_idx);
+    timeline.moveClipToTrack(mtx, clip_id, expected_track_idx);
     return true;
 }
 
@@ -301,12 +310,8 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
     ImVec2 full_canvas_size = ImGui::GetContentRegionAvail();
     ImVec2 mouse_pos = ImGui::GetMousePos();
 
+    /*    track_info | timeline         */
 
-    /*
-    
-    track_info | timeline
-    
-    */
     ImVec2 field_pos = canvas_pos + ImVec2{track_info_width, 0};
     ImVec2 field_size = full_canvas_size - ImVec2{track_info_width, 0};
     field_width = field_size.x;
@@ -367,7 +372,7 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
             ImGui::ResetMouseDragDelta(ImGuiMouseButton_Left);
         }
 
-        if (HandleVerticalClipDrag(timeline, interaction.selected_clip_id, mouse_pos)) {
+        if (HandleVerticalClipDrag(playback.getMutex(), timeline, interaction.selected_clip_id, mouse_pos)) {
             modified = true;
         }
 
@@ -377,9 +382,27 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
     if (interaction.selected_clip_id != CLIP_NONE &&
         ImGui::IsKeyPressed(ImGuiKey_Delete)) 
     {
-        timeline.removeClipById(interaction.selected_clip_id);
+        PLOG_DEBUG << "Deleting clip " << interaction.selected_clip_id;
+        timeline.removeClipById(playback.getMutex(), interaction.selected_clip_id);
         interaction.selected_clip_id = CLIP_NONE;
     }
+
+    // Clip cutting
+    if (interaction.selected_clip_id != CLIP_NONE &&
+        ImGui::IsKeyPressed(ImGuiKey_X)) {
+        PLOG_DEBUG << "Cutting clip " << interaction.selected_clip_id;
+
+        Clip *selected = timeline.getClipById(interaction.selected_clip_id);
+        auto clip_loc = timeline.getTrackAndClipIdx(interaction.selected_clip_id);
+
+        if (!selected) {
+            PLOG_ERROR << "SELECTED CLIP " << interaction.selected_clip_id << " that is not present on timeline";
+        }
+
+        std::optional<Clip> new_clip = selected->cut(timeline.playhead_frame);
+        if (new_clip) timeline.addClip(*new_clip, clip_loc->track_idx);
+    }
+
 
     // Play/pause
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Space)) {
@@ -418,7 +441,7 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(POOL_DND)) {
             AudioSourcePtr data = *(AudioSourcePtr*)payload->Data;
             // Обработка полученных данных
-            int expected_track_idx = (mouse_pos.y - field_pos.y) / track_height;
+            int expected_track_idx = (mouse_pos.y - field_pos.y - grid_line_header) / track_height;
             ma_uint64 start_frame =  pixelToFrame(mouse_pos.x - field_pos.x);
 
             ClipId_t clip_id = timeline.addClip(Clip(data, start_frame), expected_track_idx);

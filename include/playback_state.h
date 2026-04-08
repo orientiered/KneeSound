@@ -31,6 +31,8 @@ struct PlaybackState {
 
     PlaybackState(MediaPool& pool_, TimeLine& timeline_) : pool(pool_), timeline(timeline_) {}
 
+    std::mutex& getMutex() { return mtx; }
+    
     void getFrames(void *out, ma_uint32 frameCount) {
         mtx.lock();
         

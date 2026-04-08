@@ -1,6 +1,7 @@
 #pragma once
 #include <atomic>
 #include <cmath>
+#include <mutex>
 #include "common.h"
 
 #include "miniaudio.h"
@@ -98,6 +99,16 @@ public:
     // Doesn't write zeros
     void renderFrames(std::vector<audio_sample_t> &out, ma_uint64 start_frame, ma_uint64 frame_count);
 
+    std::optional<Clip> cut(ma_uint64 timeline_pos);
+
+    friend std::ostream& operator<<(std::ostream& os, const Clip& clip);
+
+    Clip copy() {
+        Clip new_clip = *this;
+        new_clip.id = unique_id_++;
+        return new_clip;
+    }
+
     Clip(AudioSourcePtr src, ma_uint64 timeline_pos, std::optional<std::string> clip_name = std::nullopt):
         source(src), name(clip_name ? *clip_name : src->name), timeline_start_frame(timeline_pos),
         source_start_frame(0), source_end_frame(src->pcmData.size() / INNER_CHANNELS)
@@ -166,7 +177,7 @@ public:
     TimeLine(): rendering_buffer(START_RENDER_BUFFER_SIZE * INNER_CHANNELS) {}
 
     float gain_db = 0; // master gain
-    
+
     // === Methods ===
 
     std::vector<audio_sample_t>& renderFrames(ma_uint64 start_frame, ma_uint64 frame_count);
@@ -176,9 +187,12 @@ public:
     std::optional<ClipLoc> getTrackAndClipIdx(ClipId_t id);
     Clip *getClipById(ClipId_t id);
     std::optional<size_t>  getTrackIdx(ClipId_t id);
-    void removeClipById(ClipId_t id);
 
-    void moveClipToTrack(ClipId_t id, int track_idx);
+    // Methods that destroy clips require mtx for synchronization
+    void removeClipByLoc(std::mutex &mtx, ClipLoc loc);
+    void removeClipById(std::mutex &mtx, ClipId_t id);
+
+    void moveClipToTrack(std::mutex &mtx, ClipId_t id, int track_idx);
 
     ClipId_t addClip(const Clip& clip, int track_idx);
     // std::vector<audio_sample_t>
