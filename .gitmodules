@@ -1,0 +1,9 @@
+ [submodule "lib_deps/ImGuiFileDialog"]
+	path = lib_deps/ImGuiFileDialog
+	url = https://github.com/aiekick/ImGuiFileDialog
+[submodule "lib_deps/plog"]
+	path = lib_deps/plog
+	url = https://github.com/SergiusTheBest/plog.git
+[submodule "lib_deps/kissfft"]
+	path = lib_deps/kissfft
+	url = https://github.com/mborgerding/kissfft.git

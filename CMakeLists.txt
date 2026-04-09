@@ -4,6 +4,9 @@ project(AuEd
   VERSION 0.1
 )
 
+# normal variables have higher priority than options
+cmake_policy(SET CMP0077 NEW)
+
 add_subdirectory(lib_deps)
 # add_subdirectory(src)
 
