@@ -6,6 +6,7 @@
 #include <imgui_internal.h>
 
 #include "timeline.h"
+#include "fft_analyzer.h"
 
 namespace waves {
 
@@ -80,8 +81,9 @@ class TimelineView {
     bool   focused;         ///< timeline window is focused
 
     TimelineInteraction interaction;
-
 public:
+
+    FFT_Analyzer analyzer;
 
     TimelineView(ma_uint64 len, float scale):
         total_frames(len), pixels_per_frame(scale), scroll_frame(0)

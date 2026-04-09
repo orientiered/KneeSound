@@ -12,6 +12,27 @@ namespace ImGui {
 
 IMGUI_API bool InputText(const char* label, std::string* str, ImGuiInputTextFlags flags = 0, ImGuiInputTextCallback callback = nullptr, void* user_data = nullptr);
 
+// Save current cursor position on construction and restore it on destruction
+struct CursorGuard {
+    ImVec2 old_cursor_pos;
+    CursorGuard(): old_cursor_pos(ImGui::GetCursorScreenPos()) {}
+    ~CursorGuard() {ImGui::SetCursorScreenPos(old_cursor_pos); }
+};
+
+// Push id on construction and pop it on destruction
+struct IdGuard {
+    IdGuard(const void* id) { ImGui::PushID(id); }
+    IdGuard(int id) { ImGui::PushID(id); }
+    IdGuard(const char* id) { ImGui::PushID(id); }
+    ~IdGuard()    { ImGui::PopID();}
+};
+
+#define ID_GUARD(id, __VA_ARGS__)   \
+    do {                            \
+    ImGui::IdGuard id_guard___(id); \
+    __VA_ARGS__                     \
+    } while(0)
+
 }
 
 static inline int InputTextCallback(ImGuiInputTextCallbackData* data)

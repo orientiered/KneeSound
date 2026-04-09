@@ -256,7 +256,7 @@ void Exporter_View::Draw(Editor& editor) {
         ImGui::ProgressBar(progress_percent);
     } else {
         if (encoder_finished) {
-            ImGui::Text("Succes!");
+            ImGui::Text("Success!");
         }
 
         if (error_on_start) {

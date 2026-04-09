@@ -32,3 +32,8 @@ file(DOWNLOAD "https://raw.githubusercontent.com/mackron/miniaudio/refs/heads/ma
 
 # Plog (logging library)
 add_subdirectory(plog)
+
+# kissfft
+set(KISSFFT_TEST   OFF) # disabling test and tools build
+set(KISSFFT_TOOLS  OFF) 
+add_subdirectory(kissfft)

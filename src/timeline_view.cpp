@@ -77,8 +77,20 @@ void TimelineView::DrawClip(ImDrawList* draw_list, const Clip& clip,
     if (text_size.x < (x_end - x_start))
         draw_list->AddText(start + ImVec2{4,4}, IM_COL32(255, 255, 255, 255), label.c_str());
 
-
     float text_height = ImGui::GetTextLineHeight();
+
+    {
+        ImGui::CursorGuard cg;
+
+        float label_len = ImGui::CalcTextSize("FFT").x;
+        ImGui::SetCursorScreenPos( ImVec2{x_end - label_len - 30, y_top});
+
+        ImGui::IdGuard ig(&clip);
+        if (ImGui::Button("FFT", ImVec2{label_len + 2, text_height+2})) {
+            analyzer.analyzeClip(clip);
+        }
+    }
+
     draw_list->AddLine(ImVec2{x_start,y_top + 4 + text_height},
                        ImVec2{x_end,  y_top + 4 + text_height}, color_border, 1);
 
@@ -224,7 +236,6 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, parity ? col_track_bg_even : col_track_bg_odd);
 
     // const float mult = 0.99;
-
     ImGui::PushID(&track);
     ImGui::BeginChild("Track_canvas", ImVec2(0, track_height), 0, ImGuiWindowFlags_HorizontalScrollbar);
 
@@ -239,20 +250,16 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
     //                 getGridLineCol());
     
     // track name
-    ImGui::PushID(&track.name);
-    ImGui::InputText("", &track.name);
-    ImGui::PopID();
+    ID_GUARD(&track.name, ImGui::InputText("", &track.name); );
     // mute
-    ImGui::PushID(&track.mute);
-    ImGui::Checkbox("Mute", &track.mute);
-    ImGui::PopID();
+    ID_GUARD(&track.mute, ImGui::Checkbox("Mute", &track.mute););
 
     // gain
     const float GAIN_MIN = -100;
     const float GAIN_MAX = +40;
-    ImGui::PushID(&track.gain_db);
-    ImGui::DragFloat("Gain", &track.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
-    ImGui::PopID();
+    ID_GUARD(&track.gain_db,
+        ImGui::DragFloat("Gain", &track.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
+    );
 
     ImGui::EndChild();
     /* ========================================= */

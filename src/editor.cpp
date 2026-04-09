@@ -71,6 +71,14 @@ void Editor::Draw() {
 
     // =================== EXPORT    =====================
     DrawExport();
+
+    // =================== FFT analyzer ==================
+
+    if (tl_view.analyzer.open) {
+        ImGui::Begin("Spectrum", &tl_view.analyzer.open);
+        tl_view.analyzer.DrawAnalyzed();
+        ImGui::End();
+    }
 }
 
 
