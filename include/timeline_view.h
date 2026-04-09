@@ -78,6 +78,10 @@ public:
         total_frames(len), pixels_per_frame(scale), scroll_frame(0)
     {}
 
+    ma_uint64 getTimelineLen() const { 
+        return total_frames; 
+    }
+    
     // Кадр -> позиция в пикселях (относительно левого края канваса)
     float frameToPixel(ma_uint64 frame) const {
         return static_cast<float>(frame - scroll_frame) * pixels_per_frame;

@@ -110,6 +110,9 @@ int main() {
 }
 
 void handle_debug_controller() {
+    if (!g_debug_flags.debug_window) {
+        return;
+    }
     static int severity_idx = 0;
     static bool show_imgui_demo = false;
     static bool show_style_editor = false;

@@ -184,8 +184,8 @@ bool TimelineView::HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id
     if (frame_delta != 0) {
         PLOG_DEBUG << "Dragging clip " << clip_id << " to " << frame_delta << "frames";
         // Проверяем границы проекта
-        if (frame_delta < 0 && -frame_delta < clip->timeline_start_frame ) {
-            clip->timeline_start_frame += frame_delta;
+        if (frame_delta < 0) {
+            clip->timeline_start_frame = std::max(0l, frame_delta + (int64_t)clip->timeline_start_frame);
             return true;
         } else if (frame_delta > 0) {
             clip->timeline_start_frame += frame_delta;
@@ -280,13 +280,6 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
 
 void TimelineView::DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline, 
                                 ImVec2 canvas_pos, ImVec2 size) {
-    ImVec2 mouse_pos = ImGui::GetMousePos();
-
-    ImRect timeline_rect = ImRect(canvas_pos, canvas_pos + size);
-    if (timeline_rect.Contains(mouse_pos) && 
-        ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {   
-        timeline.playhead_frame.store(pixelToFrame(mouse_pos.x - canvas_pos.x));
-    }
 
     ma_uint64 playhead_frame = timeline.playhead_frame.load();
     if (playhead_frame >= scroll_frame) {
@@ -339,9 +332,9 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
 
     // mouse is in timeline zone
     bool hovered = ImRect(field_pos, field_pos + field_size).Contains(mouse_pos);
+    bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
 
-
-    bool clicked = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+    bool clicked = hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
 
     // ~~ Mouse on empty space ~~
     if (!interaction.has_changes) {
@@ -353,12 +346,18 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
     }
 
     // ~~ Mouse released -> reset interaction ~~
-    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+    if (focused && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
         if (interaction.mode != TimelineInteraction::Mode::None) {
             //TODO: add interaction to history
         }
         interaction.mode = TimelineInteraction::Mode::None;
         PLOG_DEBUG << "Timeline interaction stop";
+    }
+
+
+    // Playhead moving handling
+    if (clicked && interaction.selected_clip_id == CLIP_NONE) {
+        timeline.playhead_frame.store(pixelToFrame(mouse_pos.x - field_pos.x));
     }
 
     // Dragging handling
@@ -405,7 +404,7 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
 
 
     // Play/pause
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Space)) {
+    if (focused && ImGui::IsKeyPressed(ImGuiKey_Space)) {
         playback.handleToggleFromTimeline();
     }
 

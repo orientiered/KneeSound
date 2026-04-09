@@ -23,6 +23,8 @@
 
 
 struct DebugFlags {
+    bool debug_window = true; // show debug window
+
     bool render_loop_logs = false;
     bool callback_logs = false;
 };

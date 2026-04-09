@@ -12,6 +12,7 @@
 #include "playback_state.h"
 
 #include "media_pool_view.h"
+#include "wav_exporter.h"
 
 namespace waves {
 
@@ -29,6 +30,10 @@ public:
     MediaPoolView mp_view;
     TimelineView tl_view{static_cast<ma_uint64>(1e6), 1e-2};
 
+    Exporter_View exporter;
+
+    bool show_export_window = false;
+
     static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
         PlaybackState *playback_state = reinterpret_cast<PlaybackState*>(pDevice->pUserData);
         playback_state->getFrames(pOutput, frameCount);
@@ -45,6 +50,7 @@ public:
     }
 
     void Draw();
+    void DrawExport();
 
     ~Editor() {
 

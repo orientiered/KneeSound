@@ -13,6 +13,12 @@ set(EXEC_NAME editor.exe)
 
 option(ENABLE_ASAN "Enable Address Sanitizer" ON)
 
+option(INCLUDE_DEBUG_SYMBOLS "Include debug symbols" OFF)
+
+if (INCLUDE_DEBUG_SYMBOLS)
+  add_compile_options("-g2")
+endif()
+
 if(ENABLE_ASAN)
     set(SAN_FLAGS "-fsanitize=address,undefined")
     add_compile_options(${SAN_FLAGS} -fno-omit-frame-pointer)
@@ -32,7 +38,8 @@ file(COPY lib_deps/miniaudio/miniaudio.h
      DESTINATION ../include)
 
 
-set(PROJ_SRC src/main.cpp src/miniaudio.cpp src/editor.cpp src/timeline_view.cpp src/timeline.cpp src/media_pool_view.cpp)
+set(PROJ_SRC src/main.cpp src/miniaudio.cpp src/editor.cpp src/timeline_view.cpp 
+    src/timeline.cpp src/media_pool_view.cpp src/exporter.cpp)
 
 add_executable(${EXEC_NAME} ${PROJ_SRC} lib_deps/ImGuiFileDialog/ImGuiFileDialog.cpp)
 target_include_directories(${EXEC_NAME} PRIVATE include lib_deps/ImGuiFileDialog)

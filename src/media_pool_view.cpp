@@ -12,21 +12,23 @@ void MediaPoolView::Draw(Editor& editor) {
 }
 
 void MediaPoolView::DrawSelectDialog(Editor& editor) {
+    const char * IMPORT_DLG_KEY = "ChooseImportAudioKey";
     if (ImGui::Button("Import audio")) {
         IGFD::FileDialogConfig config;
         config.path = "."; // starting from current directory
         config.countSelectionMax = 0; // selecting any number of files
 
-        ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".*,.wav,.mp3,.ogg", config);
+        ImGuiFileDialog::Instance()->OpenDialog(IMPORT_DLG_KEY, "Choose File",
+             "Audio files (*.wav *.mp3 *.ogg){.wav,.mp3,.ogg}, All{.*}", config);
     }
     // display
-    if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey")) {
+    if (ImGuiFileDialog::Instance()->Display(IMPORT_DLG_KEY)) {
         if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
             std::map<std::string, std::string> selection =
                 ImGuiFileDialog::Instance()->GetSelection();
 
             for (auto [name, path]: selection) {
-                waves::AudioSourcePtr src = waves::decode_audio_from_file(name, path);
+                AudioSourcePtr src = waves::decode_audio_from_file(name, path);
 
                 editor.media_pool.push_back(src);
 
