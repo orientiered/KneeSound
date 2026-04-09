@@ -105,6 +105,35 @@ std::vector<audio_sample_t> &Track::renderFrames(ma_uint64 start_frame, ma_uint6
     return rendering_buffer;
 }
 
+/* ================= Clipboard ================== */
+
+void TimeLine::copyToClipboard(ClipId_t id) {
+    PLOG_DEBUG << "Copying clip to clipboard " << id;
+
+    Clip *clip = getClipById(id);
+    if (!clip) return;
+
+    clipboard.data = clip->copy(); 
+}
+
+void TimeLine::cutToClipboard(ClipId_t id) {
+    PLOG_DEBUG << "Cutting clip to clipboard " << id;
+
+    Clip *clip = getClipById(id);
+    if (!clip) return;
+
+    // copying without changing id
+    clipboard.data = *clip; 
+
+    removeClipById(id); // removing clip 
+
+}
+
+std::optional<Clip> TimeLine::pasteFromClipboard() {
+    if (!clipboard.data) return std::nullopt;
+    // always copying
+    return clipboard.data->copy();
+}
 
 /* ================= Timeline =================== */
 
@@ -161,7 +190,7 @@ Clip *TimeLine::getClipById(ClipId_t id) {
 }
 
 
-void TimeLine::removeClipByLoc(std::mutex &mtx, ClipLoc loc) {
+void TimeLine::removeClipByLoc(ClipLoc loc) {
     // invalid loc
     if (tracks.size() <= loc.track_idx) {
         return;
@@ -181,10 +210,10 @@ void TimeLine::removeClipByLoc(std::mutex &mtx, ClipLoc loc) {
 }
 
 
-void TimeLine::removeClipById(std::mutex &mtx, ClipId_t id) {
+void TimeLine::removeClipById(ClipId_t id) {
 
     auto clipLoc = getTrackAndClipIdx(id);
-    if (clipLoc) return removeClipByLoc(mtx, *clipLoc);
+    if (clipLoc) return removeClipByLoc(*clipLoc);
 
 }
 
@@ -194,7 +223,7 @@ std::optional<size_t> TimeLine::getTrackIdx(ClipId_t id) {
     else return std::nullopt;
 }
 
-void TimeLine::moveClipToTrack(std::mutex &mtx, ClipId_t id, int track_idx) {
+void TimeLine::moveClipToTrack(ClipId_t id, int track_idx) {
     if (track_idx < 0) return;
 
     auto loc = getTrackAndClipIdx(id);
@@ -208,7 +237,7 @@ void TimeLine::moveClipToTrack(std::mutex &mtx, ClipId_t id, int track_idx) {
 
     tracks[track_idx].addClip(old_clips[clip_i]);
 
-    removeClipByLoc(mtx, *loc);
+    removeClipByLoc(*loc);
 }
 
 

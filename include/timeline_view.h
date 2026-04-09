@@ -66,9 +66,18 @@ class TimelineView {
 
     // drawing state
 
-    ImVec2 canvas_pos;
-    float  field_width;
+    ImVec2 canvas_pos;      ///< upper-left corner of whole timeline window
     ImVec2 full_canvas_size;
+
+    ImVec2 field_pos;       ///< upper-left corner of timeline, not including track info, canvas_pos + {track_info_width, 0} 
+    ImVec2 field_size;      ///< size of timeline without track_info
+
+    ImVec2 mouse_pos;       ///< absolute mouse cursor position
+
+    bool   hovered_all;     ///< mouse cursor is on timeline window
+    bool   hovered;         ///< mouser cursor is on timeline
+    bool   clicked;         ///< left mouse button was clicked && hovered
+    bool   focused;         ///< timeline window is focused
 
     TimelineInteraction interaction;
 
@@ -107,7 +116,7 @@ public:
     }
 
     std::pair<ma_uint64, ma_uint64> getVisibleFramesRange() const {
-        return {pixelToFrame(0), pixelToFrame(field_width)};
+        return {pixelToFrame(0), pixelToFrame(field_size.x)};
     }
 
     std::pair<ma_uint64, float> getNearestBeatInPixels() const {
@@ -170,13 +179,27 @@ public:
         }
     }
 
+    std::pair<int, uint32_t> mousePosToTrackAndFrame() {
+        int track_idx = (mouse_pos.y - field_pos.y - grid_line_header) / track_height;
+
+        uint32_t start_frame = 0;
+        if ((mouse_pos.x - field_pos.x) >= 0) 
+            start_frame = pixelToFrame(mouse_pos.x - field_pos.x);
+
+        return std::make_pair(track_idx, start_frame);
+    }
+
     // ====
 
     bool HandleClipInteraction(const Clip& clip,
                            ImVec2 canvas_pos, ImVec2 mouse_pos);
 
     bool HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_delta);
-    bool HandleVerticalClipDrag(std::mutex &mtx, TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_pos);
+    bool HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id);
+
+
+    void HandleInteractions(PlaybackState& playback, TimeLine& timeline);
+
 
     // ======== DRAWING ==============
     void DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,

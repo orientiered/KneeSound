@@ -200,18 +200,19 @@ bool TimelineView::HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id
     return false;
 }
 
-bool TimelineView::HandleVerticalClipDrag(std::mutex &mtx, TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_pos) {
+bool TimelineView::HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id) {
     auto  current_track_idx = timeline.getTrackIdx(clip_id);
     if (!current_track_idx) return false;
 
-    int expected_track_idx = (mouse_pos.y - canvas_pos.y - grid_line_header) / track_height;
+
+    int expected_track_idx = mousePosToTrackAndFrame().first;
 
     if (expected_track_idx < 0 || expected_track_idx == *current_track_idx) return false;
 
     PLOG_DEBUG << "Moving clip " << clip_id << " from track " << *current_track_idx 
                << " to track " << expected_track_idx;
 
-    timeline.moveClipToTrack(mtx, clip_id, expected_track_idx);
+    timeline.moveClipToTrack(clip_id, expected_track_idx);
     return true;
 }
 
@@ -291,26 +292,160 @@ void TimelineView::DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline,
 }
 
 
+
+/* ========================== Interaction ================================ */
+
+void TimelineView::HandleInteractions(PlaybackState& playback, TimeLine& timeline) {
+
+    // 0 ~~ Mouse on empty space ~~
+    if (!interaction.has_changes) {
+        interaction.hovered_clip_id = CLIP_NONE;
+        // click on empty space
+        if (clicked) {
+            interaction.selected_clip_id = CLIP_NONE;
+        }
+    }
+
+    // 1 ~~ Mouse released -> reset interaction ~~
+    if (focused && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        if (interaction.mode != TimelineInteraction::Mode::None) {
+            //TODO: add interaction to history
+        }
+        interaction.mode = TimelineInteraction::Mode::None;
+        PLOG_DEBUG << "Timeline interaction stop";
+    }
+
+
+    // 2 Playhead moving handling
+    if (clicked && interaction.selected_clip_id == CLIP_NONE) {
+        timeline.playhead_frame.store(pixelToFrame(mouse_pos.x - field_pos.x));
+    }
+
+    // 3 Dragging handling
+    if (interaction.selected_clip_id != CLIP_NONE && 
+        interaction.mode == TimelineInteraction::Mode::DraggingClip &&
+        ImGui::IsMouseDragging(ImGuiMouseButton_Left)) 
+    {
+        ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
+        if (HandleHorizontalClipDrag(timeline, interaction.selected_clip_id, delta)) {
+            ImGui::ResetMouseDragDelta(ImGuiMouseButton_Left);
+        }
+
+        HandleVerticalClipDrag(timeline, interaction.selected_clip_id);
+
+    } 
+
+    // 4 Clip deletion
+    if (interaction.selected_clip_id != CLIP_NONE &&
+        ImGui::IsKeyPressed(ImGuiKey_Delete)) 
+    {
+        PLOG_DEBUG << "Deleting clip " << interaction.selected_clip_id;
+        timeline.removeClipById(interaction.selected_clip_id);
+        interaction.selected_clip_id = CLIP_NONE;
+    }
+
+    // 5 Clip cutting
+    bool keyCtrl_pressed = ImGui::GetIO().KeyCtrl;
+    bool keyShift_pressed = ImGui::GetIO().KeyShift;
+    float mouseWheel_delta = ImGui::GetIO().MouseWheel;
+
+    if (interaction.selected_clip_id != CLIP_NONE &&
+        !keyCtrl_pressed && ImGui::IsKeyPressed(ImGuiKey_X)) {
+        PLOG_DEBUG << "Cutting clip " << interaction.selected_clip_id;
+
+        Clip *selected = timeline.getClipById(interaction.selected_clip_id);
+        auto clip_loc = timeline.getTrackAndClipIdx(interaction.selected_clip_id);
+
+        if (!selected) {
+            PLOG_ERROR << "SELECTED CLIP " << interaction.selected_clip_id << " that is not present on timeline";
+        }
+
+        std::optional<Clip> new_clip = selected->cut(timeline.playhead_frame);
+        if (new_clip) timeline.addClip(*new_clip, clip_loc->track_idx);
+    }
+
+    // 6 Clip copy-cut-pasting
+
+    // Ctrl + C
+    if (interaction.selected_clip_id != CLIP_NONE &&
+        keyCtrl_pressed && ImGui::IsKeyPressed(ImGuiKey_C)) {
+        PLOG_DEBUG << "Copying clip " << interaction.selected_clip_id;
+        timeline.copyToClipboard(interaction.selected_clip_id);
+    }
+
+    // Ctrl + X
+    if (interaction.selected_clip_id != CLIP_NONE &&
+        keyCtrl_pressed && ImGui::IsKeyPressed(ImGuiKey_X)) {
+        PLOG_DEBUG << "Copying clip " << interaction.selected_clip_id;
+        timeline.cutToClipboard(interaction.selected_clip_id);
+        interaction.selected_clip_id = CLIP_NONE;
+    }
+
+    // Ctrl + V
+
+    if (keyCtrl_pressed && ImGui::IsKeyPressed(ImGuiKey_V) && hovered ) {
+        PLOG_DEBUG << "Pasting clip";
+
+        auto loc = mousePosToTrackAndFrame();
+
+        std::optional<Clip> clip_opt = timeline.pasteFromClipboard();
+        if (!clip_opt) return;
+
+        clip_opt->timeline_start_frame = loc.second;
+        timeline.addClip(*clip_opt, loc.first); 
+    }
+
+    // 7 Play/pause
+    if (focused && ImGui::IsKeyPressed(ImGuiKey_Space)) {
+        playback.handleToggleFromTimeline();
+    }
+
+    // 8 ===  Handling scroll and zoom ===
+
+
+    if (hovered && mouseWheel_delta != 0) {
+        if (keyCtrl_pressed) {
+            float mouse_x_rel = mouse_pos.x - field_pos.x;
+            zoomAtPixel(mouse_x_rel, mouseWheel_delta > 0 ? 1.1f : 0.9f);
+        } else if (keyShift_pressed) {
+            track_height *= mouseWheel_delta > 0 ? 1.1f : 0.9f;
+        } else {
+            float pixels_per_mouse_scroll = 50;
+            float pixel_delta = (mouseWheel_delta > 0 ? 1.f: -1.f) * pixels_per_mouse_scroll;
+
+            scrollByFrames(pixelToFrameRel(pixel_delta));
+
+        }
+    }
+
+}
+
 void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
-    bool modified = false;
 
     // Timeline over all available space
     ImGui::BeginChild("Timeline_canvas", ImVec2(0, 0), ImGuiChildFlags_Borders, 
         ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_HorizontalScrollbar);
 
-    ImDrawList* draw_list = ImGui::GetWindowDrawList();
-    canvas_pos = ImGui::GetCursorScreenPos();
-    ImVec2 full_canvas_size = ImGui::GetContentRegionAvail();
-    ImVec2 mouse_pos = ImGui::GetMousePos();
+    // === 0. Updating drawing state variables
 
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    canvas_pos = ImGui::GetCursorScreenPos();
+    full_canvas_size = ImGui::GetContentRegionAvail();
     /*    track_info | timeline         */
 
-    ImVec2 field_pos = canvas_pos + ImVec2{track_info_width, 0};
-    ImVec2 field_size = full_canvas_size - ImVec2{track_info_width, 0};
-    field_width = field_size.x;
-    
-    // === 0. Resetting interaction
+    field_pos = canvas_pos + ImVec2{track_info_width, 0};
+    field_size = full_canvas_size - ImVec2{track_info_width, 0};
 
+    mouse_pos = ImGui::GetMousePos();
+    // mouse is in timeline zone
+    hovered_all = ImRect(canvas_pos, canvas_pos + full_canvas_size).Contains(mouse_pos);
+    hovered = ImRect(field_pos, field_pos + field_size).Contains(mouse_pos);
+    focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
+
+    clicked = hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+
+    // Resetting interaction
     interaction.has_changes = false;
 
     // === 1. Drawing tracks
@@ -330,120 +465,21 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
 
     // === 4. Interaction ========================
 
-    // mouse is in timeline zone
-    bool hovered = ImRect(field_pos, field_pos + field_size).Contains(mouse_pos);
-    bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
-
-    bool clicked = hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
-
-    // ~~ Mouse on empty space ~~
-    if (!interaction.has_changes) {
-        interaction.hovered_clip_id = CLIP_NONE;
-        // click on empty space
-        if (clicked) {
-            interaction.selected_clip_id = CLIP_NONE;
-        }
-    }
-
-    // ~~ Mouse released -> reset interaction ~~
-    if (focused && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-        if (interaction.mode != TimelineInteraction::Mode::None) {
-            //TODO: add interaction to history
-        }
-        interaction.mode = TimelineInteraction::Mode::None;
-        PLOG_DEBUG << "Timeline interaction stop";
-    }
-
-
-    // Playhead moving handling
-    if (clicked && interaction.selected_clip_id == CLIP_NONE) {
-        timeline.playhead_frame.store(pixelToFrame(mouse_pos.x - field_pos.x));
-    }
-
-    // Dragging handling
-    if (interaction.selected_clip_id != CLIP_NONE && 
-        interaction.mode == TimelineInteraction::Mode::DraggingClip &&
-        ImGui::IsMouseDragging(ImGuiMouseButton_Left)) 
-    {
-        ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
-        if (HandleHorizontalClipDrag(timeline, interaction.selected_clip_id, delta)) {
-            modified = true;
-            ImGui::ResetMouseDragDelta(ImGuiMouseButton_Left);
-        }
-
-        if (HandleVerticalClipDrag(playback.getMutex(), timeline, interaction.selected_clip_id, mouse_pos)) {
-            modified = true;
-        }
-
-    } 
-
-    // Clip deletion
-    if (interaction.selected_clip_id != CLIP_NONE &&
-        ImGui::IsKeyPressed(ImGuiKey_Delete)) 
-    {
-        PLOG_DEBUG << "Deleting clip " << interaction.selected_clip_id;
-        timeline.removeClipById(playback.getMutex(), interaction.selected_clip_id);
-        interaction.selected_clip_id = CLIP_NONE;
-    }
-
-    // Clip cutting
-    if (interaction.selected_clip_id != CLIP_NONE &&
-        ImGui::IsKeyPressed(ImGuiKey_X)) {
-        PLOG_DEBUG << "Cutting clip " << interaction.selected_clip_id;
-
-        Clip *selected = timeline.getClipById(interaction.selected_clip_id);
-        auto clip_loc = timeline.getTrackAndClipIdx(interaction.selected_clip_id);
-
-        if (!selected) {
-            PLOG_ERROR << "SELECTED CLIP " << interaction.selected_clip_id << " that is not present on timeline";
-        }
-
-        std::optional<Clip> new_clip = selected->cut(timeline.playhead_frame);
-        if (new_clip) timeline.addClip(*new_clip, clip_loc->track_idx);
-    }
-
-
-    // Play/pause
-    if (focused && ImGui::IsKeyPressed(ImGuiKey_Space)) {
-        playback.handleToggleFromTimeline();
-    }
-
-    // === 5. Handling scroll and zoom ===
-
-    bool keyCtrl_pressed = ImGui::GetIO().KeyCtrl;
-    bool keyShift_pressed = ImGui::GetIO().KeyShift;
-    float mouseWheel_delta = ImGui::GetIO().MouseWheel;
-
-    if (hovered && mouseWheel_delta != 0) {
-        if (keyCtrl_pressed) {
-            float mouse_x_rel = mouse_pos.x - field_pos.x;
-            zoomAtPixel(mouse_x_rel, mouseWheel_delta > 0 ? 1.1f : 0.9f);
-            modified = true;
-        } else if (keyShift_pressed) {
-            track_height *= mouseWheel_delta > 0 ? 1.1f : 0.9f;
-        } else {
-            float pixels_per_mouse_scroll = 50;
-            float pixel_delta = (mouseWheel_delta > 0 ? 1.f: -1.f) * pixels_per_mouse_scroll;
-
-            scrollByFrames(pixelToFrameRel(pixel_delta));
-
-        }
-    }
+    HandleInteractions(playback, timeline);
 
 
     ImGui::EndChild();
 
-    // === 6. Drag and drop
+    // === 5. Drag and drop
 
     if (hovered && ImGui::BeginDragDropTarget()) {
         // Проверяем, совпадает ли тип данных
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(POOL_DND)) {
             AudioSourcePtr data = *(AudioSourcePtr*)payload->Data;
             // Обработка полученных данных
-            int expected_track_idx = (mouse_pos.y - field_pos.y - grid_line_header) / track_height;
-            ma_uint64 start_frame =  pixelToFrame(mouse_pos.x - field_pos.x);
+            auto loc = mousePosToTrackAndFrame();
 
-            ClipId_t clip_id = timeline.addClip(Clip(data, start_frame), expected_track_idx);
+            ClipId_t clip_id = timeline.addClip(Clip(data, loc.second), loc.first);
 
             // expanding timeline if necessary
             Clip *clip = timeline.getClipById(clip_id);

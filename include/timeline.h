@@ -165,6 +165,22 @@ struct ClipLoc {
     size_t clip_idx;
 };
 
+struct TimelineClipboard {
+    std::optional<Clip> data;
+
+
+};
+
+/* MUTEX USAGE POLICY:
+
+    Only GUI thread changes state of the timeline
+
+    Audio thread only reads or modifies render buffers in Clips, Tracks and TimeLine, but never deletes them
+
+    It means that only operation that delete clips or tracks must be synced with mutex
+
+    Copying from gui thread is always safe
+*/
 class TimeLine {
 public:
     std::vector<Track> tracks;
@@ -173,8 +189,12 @@ public:
 
     std::vector<audio_sample_t> rendering_buffer;
 
+    TimelineClipboard clipboard; 
 
-    TimeLine(): rendering_buffer(START_RENDER_BUFFER_SIZE * INNER_CHANNELS) {}
+    std::mutex &mtx; // shared mtx
+
+
+    TimeLine(std::mutex &mtx_): mtx(mtx_), rendering_buffer(START_RENDER_BUFFER_SIZE * INNER_CHANNELS) {}
 
     float gain_db = 0; // master gain
 
@@ -189,15 +209,18 @@ public:
     std::optional<size_t>  getTrackIdx(ClipId_t id);
 
     // Methods that destroy clips require mtx for synchronization
-    void removeClipByLoc(std::mutex &mtx, ClipLoc loc);
-    void removeClipById(std::mutex &mtx, ClipId_t id);
+    void removeClipByLoc(ClipLoc loc); // uses mtx
+    void removeClipById(ClipId_t id); // uses mtx
 
-    void moveClipToTrack(std::mutex &mtx, ClipId_t id, int track_idx);
+    void moveClipToTrack(ClipId_t id, int track_idx); // uses mtx
 
     ClipId_t addClip(const Clip& clip, int track_idx);
-    // std::vector<audio_sample_t>
 
+    // clipboard
+    void copyToClipboard(ClipId_t id);
+    void cutToClipboard(ClipId_t id);  // uses mtx
 
+    std::optional<Clip> pasteFromClipboard();
 
 };
 
