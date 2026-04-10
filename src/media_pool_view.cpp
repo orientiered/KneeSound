@@ -4,6 +4,8 @@
 
 #include "media_pool_view.h"
 
+#include "imgui_misc.h"
+
 namespace waves {
 
 void MediaPoolView::Draw(Editor& editor) {
@@ -28,7 +30,7 @@ void MediaPoolView::DrawSelectDialog(Editor& editor) {
                 ImGuiFileDialog::Instance()->GetSelection();
 
             for (auto [name, path]: selection) {
-                AudioSourcePtr src = waves::decode_audio_from_file(name, path);
+                AudioSourcePtr src = decode_audio_from_file_async(name, path);
 
                 editor.media_pool.push_back(src);
 
@@ -45,19 +47,23 @@ void MediaPoolView::DrawFile(PlaybackState& playback_state, SourceIt it, int tra
     MediaPool &pool = playback_state.pool;
     const AudioSourcePtr src = *it;
 
-    bool playing = playback_state.isPlaying;
+    bool playing = playback_state.isPlaying && playback_state.src == POOL_SRC;
     SourceIt currentTrack = playback_state.currentTrack;
     bool on_current = currentTrack == it;
 
 
-    ImGui::PushID(track_idx);
+    ID_GUARD(track_idx, 
         if (ImGui::Button("X")) {
             erase = true;
         }
-    ImGui::PopID();
+    );
 
     ImGui::SameLine();
-    ImGui::Text("%s", src->name.c_str());
+    if (src->loading) {
+        ImGui::ProgressBar(-1.0f * (float)ImGui::GetTime(), ImVec2(0.0f, 0.0f), src->name.c_str());
+    } else {
+        ImGui::Text("%s", src->name.c_str());
+    }
     // drag and drop
     if (src->valid && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID) ) {
 
@@ -69,9 +75,11 @@ void MediaPoolView::DrawFile(PlaybackState& playback_state, SourceIt it, int tra
         ImGui::EndDragDropSource();
     }
 
-    if (!src->valid) {
-
+    if (src->loading) {
+        // do nothing
+    } else if (!src->valid) {
         ImGui::SameLine();
+
         ImGui::Text("Failed to decode");
 
     } else {

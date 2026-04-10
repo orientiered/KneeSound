@@ -27,7 +27,7 @@ struct IdGuard {
     ~IdGuard()    { ImGui::PopID();}
 };
 
-#define ID_GUARD(id, __VA_ARGS__)   \
+#define ID_GUARD(id, ...)           \
     do {                            \
     ImGui::IdGuard id_guard___(id); \
     __VA_ARGS__                     \

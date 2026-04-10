@@ -1,4 +1,5 @@
 #include "editor.h"
+#include <thread>
 
 namespace waves {
 
@@ -7,16 +8,47 @@ AudioSourcePtr decode_audio_from_file(const std::string& name, const std::string
     PLOG_INFO << "Decoding audio from file " << path << " (name '" << name << "')";
 
     AudioDecoder decoder(path);
+
+    AudioSourcePtr result = std::make_shared<AudioSource>(name, path);
+
     std::optional<std::vector<audio_sample_t>> pcmData = decoder.decode();
 
-    AudioSource result = {false, name, path};
     if (pcmData) {
-        result.valid = true;
-        result.pcmData = std::move(*pcmData);
+        result->pcmData = std::move(*pcmData);
+        result->valid = true;
     }
 
-    return std::make_shared<AudioSource>(result);
+    return result;
 }
+
+AudioSourcePtr decode_audio_from_file_async(const std::string &name, const std::string &path) {
+    PLOG_INFO << "Decoding audio async from file " << path << " (name '" << name << "')";
+
+    AudioSourcePtr result = std::make_shared<AudioSource>(name, path);
+
+    auto async_decode = [](AudioSourcePtr source) {
+        AudioDecoder decoder(source->path);
+
+        source->loading.store(true);
+
+        std::optional<std::vector<audio_sample_t>> pcmData = decoder.decode();
+
+        if (pcmData) {
+            source->pcmData = std::move(*pcmData);
+            source->valid = true;
+        }
+
+        source->loading.store(false);
+
+    };
+
+    std::thread decoder_thread(async_decode, result);
+
+    decoder_thread.detach();
+    
+    return result;
+}
+
 
 void Editor::DrawExport() {
     if (!show_export_window) return;

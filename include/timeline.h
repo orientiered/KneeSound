@@ -26,8 +26,13 @@ struct AudioSource {
     bool valid = false;
     std::string name;
     std::string path;
+
+    std::atomic<bool> loading = false; // use when loading asynchronously 
+    
     std::vector<float> pcmData;
 
+    AudioSource(const std::string& name_, const std::string& path_): name(name_), path(path_) {}
+     
     float getMonoSampleAmplitude(ma_uint64 frame) {
         if (frame >= pcmData.size() / INNER_CHANNELS) return 0;
 
