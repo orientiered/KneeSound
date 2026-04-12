@@ -5,8 +5,6 @@ namespace waves {
 
 /* ================= Clip     =================== */
 
-// Renders frames to out array, ADDITIVELY 
-// Doesn't write zeros
 
 std::ostream& operator<<(std::ostream& os, const Clip& clip) {
     os << "Clip '" << clip.name << "'[" << &clip << "][id:" << clip.id << "] dump:\n"
@@ -17,6 +15,8 @@ std::ostream& operator<<(std::ostream& os, const Clip& clip) {
     return os;
 }
 
+// Renders frames to out array, ADDITIVELY 
+// Doesn't write zeros
 void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_uint64 start_frame, ma_uint64 frame_count) {
 
     if (muted) return;
@@ -44,13 +44,24 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_uint64 start_frame,
     PLOG_VERBOSE_IF(g_debug_flags.callback_logs) <<
         "Rendering clip " << name << ": si " << out_start_i << " ei " << out_end_i << " srci " << src_i << 
         " gain " << gain;
-    //TODO: clip pan 
-    for (ma_uint64 out_i = out_start_i; out_i < out_end_i; out_i++, src_i++) {
 
-        for (int ch_idx = 0; ch_idx < INNER_CHANNELS; ch_idx++) {
-            float sample = source->pcmData[src_i*INNER_CHANNELS + ch_idx];
-            out[out_i*INNER_CHANNELS + ch_idx] += sample * gain;
-        }
+    // TODO: clip pan 
+    auto process_frame = [&](float *in, float *out) {
+        float left = in[0], right = in[1];
+
+        float pan_left  = (pan <= 0) ? 1 : (1 - pan);
+        float pan_right = (pan >= 0) ? 1 : (1 + pan); 
+        float out_left  = left  * gain * pan_left;
+        float out_right = right * gain * pan_right; 
+
+        out[0] = out_left;
+        out[1] = out_right;
+    };
+
+    for (ma_uint64 out_i = out_start_i; out_i < out_end_i; out_i++, src_i++) {
+        assert(INNER_CHANNELS == 2);
+        process_frame(&source->pcmData[src_i*INNER_CHANNELS], 
+                      &out[out_i*INNER_CHANNELS]);
 
     }
     

@@ -43,23 +43,41 @@ void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const waves::Clip& cl
     }
 }
 
-void TimelineView::DrawClip(ImDrawList* draw_list, const Clip& clip,
-              ImVec2 canvas_pos, bool is_selected, bool is_hovered) {
+void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
+    ImVec2 track_start_pos) {
+
+    /*
+    start
+    ------------------------
+    | Label     FFT M Eff  |
+    ------------------------
+    |                      |
+    |   waveform           |
+    |                      |
+    ------------------------ end
+    */
 
     // absolute frames on timeline
     auto [clip_left, clip_right] = getVisibleClipRange(clip);
     // clip is not visible, skipping
     if (clip_left >= clip_right) return;
 
-    float x_start = canvas_pos.x + frameToPixel(clip_left);
-    float x_end = canvas_pos.x + frameToPixel(clip_right);
+    float x_start = track_start_pos.x + frameToPixel(clip_left);
+    float x_end = track_start_pos.x + frameToPixel(clip_right);
     // TODO: draw two channels
-    float y_top = canvas_pos.y + 0.f;
-    float y_bottom = canvas_pos.y + track_height - track_pad;
+    float y_top = track_start_pos.y + clip_vert_pad;
+    float y_bottom = track_start_pos.y + track_height - clip_vert_pad;
 
     ImVec2 start(x_start, y_top), end(x_end, y_bottom);
 
-    // Цвета в зависимости от состояния
+    /* ============== Clickable base =========================== */
+
+    ImGui::SetNextItemAllowOverlap();  // base of the clip may be overlapped by widgets
+    ImGui::CursorGuard cg(start); // setting cursor and saving previous position
+    ID_GUARD(start.x+start.y, ImGui::InvisibleButton("##Clickable", end-start););  
+    auto [is_hovered, is_selected] = HandleClipBaseInteraction(clip);
+
+    // Mimicking selectable
     ImU32 color_base = is_selected ? col_clip_selected  
                                    : col_clip_base;   
     ImU32 color_border = is_hovered ? IM_COL32(255, 255, 255, 255)
@@ -69,36 +87,76 @@ void TimelineView::DrawClip(ImDrawList* draw_list, const Clip& clip,
     draw_list->AddRectFilled(start, end, color_base, 3.0f);
     draw_list->AddRect(start, end, color_border, 3.0f);
 
-    // Drawing clip label
-    std::string label = clip.name.empty() ? "Clip" : clip.name;
+    // ==================== HEADER: LABEL AND EFFECT BUTTONS ====================== 
 
-    ImVec2 text_size = ImGui::CalcTextSize(label.c_str());
+    float text_pad = 2;
+    float text_horizontal_pad = 10;
+    float text_height = ImGui::GetFrameHeight();
+    float bar_height = text_height + 2 * text_pad;
 
-    if (text_size.x < (x_end - x_start))
-        draw_list->AddText(start + ImVec2{4,4}, IM_COL32(255, 255, 255, 255), label.c_str());
+    float header_left_cursor = start.x;
+    float header_right_cursor = end.x - text_horizontal_pad;
 
-    float text_height = ImGui::GetTextLineHeight();
+    float bar_y = y_top + text_pad;
 
-    {
-        ImGui::CursorGuard cg;
+    auto advance_cursor_for_text_left = [&](const char *text) {
+        float text_size = ImGui::CalcTextSize(text).x + 2 * text_horizontal_pad;
+        if (header_right_cursor - text_size > header_left_cursor) {
+            header_right_cursor -= text_size;
+            ImGui::SetCursorScreenPos({header_right_cursor, bar_y});
+            // ImGui::SetNextItemWidth(text_size);
+            return true;
+        }
 
-        float label_len = ImGui::CalcTextSize("FFT").x;
-        ImGui::SetCursorScreenPos( ImVec2{x_end - label_len - 30, y_top});
+        return false;
+    };
 
-        ImGui::IdGuard ig(&clip);
-        if (ImGui::Button("FFT", ImVec2{label_len + 2, text_height+2})) {
-            analyzer.analyzeClip(clip);
+    const char * const CLIP_POPUP = "CLIP_POPUP_OPTS";
+
+
+    bool more_button = advance_cursor_for_text_left("...");
+    if (more_button) {
+        ImGui::PushID(&clip);
+        if (ImGui::Button("...")) {
+            ImGui::OpenPopup(CLIP_POPUP);
         }
     }
 
-    draw_list->AddLine(ImVec2{x_start,y_top + 4 + text_height},
-                       ImVec2{x_end,  y_top + 4 + text_height}, color_border, 1);
+    // clip name
+    std::string label = clip.name.empty() ? "Clip" : clip.name;
+    ImVec2 label_size = ImGui::CalcTextSize(label.c_str());
 
+    if (ImGui::BeginPopup(CLIP_POPUP)) {
+        ImGui::SeparatorText(label.c_str());
+        ImGui::Checkbox("Mute", &clip.muted);
+        ImGui::DragFloat("Gain", &clip.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
+        ImGui::DragFloat("Pan", &clip.pan, 0.05, -1, 1, "%.2f");
+        if (ImGui::Button("FFT")) {
+            analyzer.analyzeClip(clip);
+        }
+
+        ImGui::EndPopup();
+    }
+
+    if (more_button) ImGui::PopID();
+    
+    if (header_left_cursor + label_size.x < header_right_cursor) {
+        draw_list->AddText(start + ImVec2{text_pad,text_pad}, col_clip_text, label.c_str());
+        header_left_cursor += label_size.x;
+    }
+
+
+    // ====================== WAVEFORM =======================
+    draw_list->AddLine(ImVec2{x_start,y_top + bar_height},
+                       ImVec2{x_end,  y_top + bar_height}, color_border, 1);
+
+    ImVec2 waveform_start = track_start_pos + ImVec2{0, bar_height};
+    float waveform_height = track_height - bar_height;
     // Drawing waveform
     if (clip.source && (x_end - x_start) > 20) {
         DrawMiniWaveform(draw_list, clip,
-                canvas_pos + ImVec2{0, text_height},
-                track_height - text_height,
+                waveform_start,
+                waveform_height,
                 {clip_left, clip_right});
     }
 }
@@ -155,33 +213,26 @@ void TimelineView::DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2
 
 }
 
-bool TimelineView::HandleClipInteraction(const Clip& clip,
-                           ImVec2 canvas_pos, ImVec2 mouse_pos) {
+//! call immediately after clip's base invisible button 
+// @return Pair of bools: is clip hovered, is clip selected 
+std::pair<bool, bool> TimelineView::HandleClipBaseInteraction(const Clip& clip) {
 
-    // absolute frames on timeline
-    auto [clip_left, clip_right] = getVisibleClipRange(clip);
-    // clip is not visible, skipping
-    if (clip_left >= clip_right) return false;
-
-    ImRect clip_rect = getClipRect(canvas_pos, track_height, clip_left, clip_right);
-    bool hovered = clip_rect.Contains(mouse_pos);
+    bool hovered = ImGui::IsItemHovered();
     if (hovered) {
         interaction.hovered_clip_id = clip.id;
-        interaction.has_changes = true;
     }
     
     // selecting clip on click
     //TODO: check click at the edge of the clip -> resize
-    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
         PLOG_DEBUG << "Selected clip " << clip.id; 
         interaction.selected_clip_id = clip.id;
         interaction.mouse_start_pos = mouse_pos;
         interaction.drag_start_frame = clip.timeline_start_frame;
         interaction.mode = TimelineInteraction::Mode::DraggingClip;
-        interaction.has_changes = true;
     }
 
-    return false;
+    return {hovered, interaction.selected_clip_id == clip.id};
 }
 
 /* =================== DRAGGING ======================================== */
@@ -194,7 +245,7 @@ bool TimelineView::HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id
     int64_t frame_delta = pixelToFrameRel(mouse_delta.x);
 
     if (frame_delta != 0) {
-        PLOG_DEBUG << "Dragging clip " << clip_id << " to " << frame_delta << "frames";
+        PLOG_DEBUG << "Dragging clip " << clip_id << " by " << frame_delta << "frames";
         // Проверяем границы проекта
         if (frame_delta < 0) {
             clip->timeline_start_frame = std::max(0l, frame_delta + (int64_t)clip->timeline_start_frame);
@@ -237,7 +288,8 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
 
     // const float mult = 0.99;
     ImGui::PushID(&track);
-    ImGui::BeginChild("Track_canvas", ImVec2(0, track_height), 0, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::BeginChild("Track_canvas", ImVec2(0, track_height), 0, 
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
@@ -246,17 +298,13 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
     /* ====== TRACK INFO AND CONTROLS ====================== */
     ImGui::BeginChild("Track info", ImVec2{track_info_width, track_height}, 0);
 
-    // draw_list->AddRect(canvas_pos, canvas_pos + ImVec2{track_info_width, track_height - track_pad}, 
-    //                 getGridLineCol());
-    
     // track name
     ID_GUARD(&track.name, ImGui::InputText("", &track.name); );
     // mute
     ID_GUARD(&track.mute, ImGui::Checkbox("Mute", &track.mute););
 
     // gain
-    const float GAIN_MIN = -100;
-    const float GAIN_MAX = +40;
+    
     ID_GUARD(&track.gain_db,
         ImGui::DragFloat("Gain", &track.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
     );
@@ -270,19 +318,16 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
 
     // ===== Drawing clips =====
     for (Clip& clip: track.clips) {
-        // Interaction handling
-        HandleClipInteraction(clip, canvas_pos, mouse_pos);
-
-        // Drawing
-        bool is_hovered = (interaction.hovered_clip_id == clip.id);
-        bool is_selected = (interaction.selected_clip_id == clip.id);
-        DrawClip(draw_list, clip, canvas_pos, is_selected, is_hovered);
+        DrawClip(draw_list, clip, canvas_pos);
 
     }
 
     ImGui::PopStyleColor();
     ImGui::EndChild();
     ImGui::PopID();
+    // empty track space is considered background
+    clicked_on_bg |= ImGui::IsItemClicked(ImGuiMouseButton_Left);
+    hovered_on_bg |= ImGui::IsItemHovered();
 
 }
 
@@ -305,12 +350,16 @@ void TimelineView::DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline,
 void TimelineView::HandleInteractions(PlaybackState& playback, TimeLine& timeline) {
 
     // 0 ~~ Mouse on empty space ~~
-    if (!interaction.has_changes) {
+    if (hovered_on_bg) {
         interaction.hovered_clip_id = CLIP_NONE;
-        // click on empty space
-        if (clicked) {
-            interaction.selected_clip_id = CLIP_NONE;
-        }
+    }
+
+    // click on empty space
+    if (clicked_on_bg) {
+        if (interaction.selected_clip_id != CLIP_NONE) {
+            PLOG_DEBUG << "Unselected clip " << interaction.selected_clip_id;
+        }   
+        interaction.selected_clip_id = CLIP_NONE;
     }
 
     // 1 ~~ Mouse released -> reset interaction ~~
@@ -324,7 +373,7 @@ void TimelineView::HandleInteractions(PlaybackState& playback, TimeLine& timelin
 
 
     // 2 Playhead moving handling
-    if (clicked && interaction.selected_clip_id == CLIP_NONE) {
+    if (clicked_on_bg) {
         timeline.playhead_frame.store(pixelToFrame(mouse_pos.x - field_pos.x));
     }
 
@@ -444,6 +493,15 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
     field_pos = canvas_pos + ImVec2{track_info_width, 0};
     field_size = full_canvas_size - ImVec2{track_info_width, 0};
 
+    // Invisible button that detects clicks on empty space
+    {
+        ImGui::CursorGuard cg(field_pos); // setting cursor and saving previous position
+        ImGui::SetNextItemAllowOverlap();  
+        ImGui::InvisibleButton("##Timeline_background", field_size);
+        clicked_on_bg = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+        hovered_on_bg = ImGui::IsItemHovered();
+    }
+
     mouse_pos = ImGui::GetMousePos();
     // mouse is in timeline zone
     hovered_all = ImRect(canvas_pos, canvas_pos + full_canvas_size).Contains(mouse_pos);
@@ -452,8 +510,6 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
 
     clicked = hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
 
-    // Resetting interaction
-    interaction.has_changes = false;
 
     // === 1. Drawing tracks
     ImGui::SetCursorScreenPos(canvas_pos + ImVec2{0,grid_line_header});

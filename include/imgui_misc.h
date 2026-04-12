@@ -15,7 +15,10 @@ IMGUI_API bool InputText(const char* label, std::string* str, ImGuiInputTextFlag
 // Save current cursor position on construction and restore it on destruction
 struct CursorGuard {
     ImVec2 old_cursor_pos;
+    // Just save current position
     CursorGuard(): old_cursor_pos(ImGui::GetCursorScreenPos()) {}
+    // Save current position and set new
+    CursorGuard(const ImVec2 &pos): CursorGuard() { ImGui::SetCursorScreenPos(pos); } 
     ~CursorGuard() {ImGui::SetCursorScreenPos(old_cursor_pos); }
 };
 

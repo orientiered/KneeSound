@@ -20,9 +20,6 @@ struct TimelineInteraction {
     ma_uint64 drag_start_frame; // позиция клипа в момент начала перетаскивания, needed for undo/redo
     ImVec2 mouse_start_pos;
 
-
-    bool has_changes = false;
-
     TimelineInteraction(): mode(Mode::None) {}
 
 };
@@ -39,6 +36,7 @@ class TimelineView {
     ImU32 col_waveform      = IM_COL32(255, 255, 255, 100);
     ImU32 col_clip_selected = IM_COL32(170, 190, 170, 220); 
     ImU32 col_clip_base     = IM_COL32(150, 160, 150, 180); 
+    ImU32 col_clip_text     = IM_COL32(255, 255, 255, 255);
 
     ImU32 col_track_bg_odd  = IM_COL32(80, 80, 80, 200); 
     ImU32 col_track_bg_even = IM_COL32(60, 60, 60, 200);
@@ -59,11 +57,15 @@ class TimelineView {
 
     float track_height = 120.f;
     float track_pad    = 2.f;
+    float clip_vert_pad = 4.f;
     float track_info_width = 200.f;
     const float MIN_TRACK_HEIGHT = 50.f;
     const float MAX_TRACK_HEIGHT = 500.f;
 
     const int MAX_POINTS_PER_WAVEFORM = 10000;
+
+    const float GAIN_MIN = -100;
+    const float GAIN_MAX = +40;
 
     // drawing state
 
@@ -76,8 +78,10 @@ class TimelineView {
     ImVec2 mouse_pos;       ///< absolute mouse cursor position
 
     bool   hovered_all;     ///< mouse cursor is on timeline window
-    bool   hovered;         ///< mouser cursor is on timeline
+    bool   hovered;         ///< mouse cursor is on timeline
+    bool   hovered_on_bg;   ///< mouse cursor is on timeline background
     bool   clicked;         ///< left mouse button was clicked && hovered
+    bool   clicked_on_bg;   ///< left mouse button was clicked on empty space
     bool   focused;         ///< timeline window is focused
 
     TimelineInteraction interaction;
@@ -192,9 +196,8 @@ public:
     }
 
     // ====
-
-    bool HandleClipInteraction(const Clip& clip,
-                           ImVec2 canvas_pos, ImVec2 mouse_pos);
+private:
+    std::pair<bool, bool> HandleClipBaseInteraction(const Clip& clip);
 
     bool HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_delta);
     bool HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id);
@@ -204,18 +207,20 @@ public:
 
 
     // ======== DRAWING ==============
-    void DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
-                      ImVec2 canvas_pos, float height, std::pair<ma_uint64, ma_uint64> clip_timeline_frames);
 
     void DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2 canvas_size);
 
 
-    void DrawClip(ImDrawList* draw_list, const Clip& clip,
-                ImVec2 canvas_pos, bool is_selected, bool is_hovered);
+    void DrawTrack(Track& track, bool parity);
+    // Track owns draw list for clip and waveform
+    void DrawClip(ImDrawList* draw_list, Clip& clip, ImVec2 track_start_pos);
+
+    void DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
+                      ImVec2 canvas_pos, float height, std::pair<ma_uint64, ma_uint64> clip_timeline_frames);
 
     void DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline, ImVec2 canvas_pos, ImVec2 size);
-    void DrawTrack(Track& track, bool parity);
 
+public:
     void DrawTimeline(PlaybackState& playback, TimeLine& timeline);
 
 };

@@ -1,0 +1,4 @@
+
+// ImDrawListSplitter - разделение отрисовки по слоям 
+// ImGui::Selectable() - вместо ручной обработки + в будущем мб MultiSelect
+// ContextPopupWindow вместо кнопок?
