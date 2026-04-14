@@ -4,6 +4,7 @@
 
 #include "kiss_fftr.h"
 #include "timeline.h"
+#include "fft_utils.h"
 
 namespace waves {
 
@@ -16,9 +17,9 @@ class FFT_Analyzer {
     bool realtime_spectr_from_buffer = false;
     // for realtime analyze
     ReadableStreamingBuffer *buffer_ = nullptr; 
-    int cached_nfft = -1;
-    kiss_fftr_cfg fft_cfg = nullptr;
-    std::vector<float> window;
+    WindowedKissFFTR wfftr;
+    WindowFunction::Type window_type = WindowFunction::Type::Hann;
+    
     std::vector<float> temp_in;
     std::vector<kiss_fft_cpx> temp_out;
 
@@ -38,10 +39,6 @@ public:
     
     void DrawAnalyzed();    
 
-
-    ~FFT_Analyzer() {
-        kiss_fftr_free(fft_cfg);
-    }
 };
 
 

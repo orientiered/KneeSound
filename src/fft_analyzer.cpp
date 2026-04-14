@@ -1,7 +1,7 @@
 #include "fft_analyzer.h"
 
-#include "fft_window.h"
 #include "kiss_fftr.h"
+#include "fft_utils.h"
 #include "imgui.h"
 #include <algorithm>
 
@@ -10,7 +10,7 @@ namespace waves {
 void FFT_Analyzer::analyzeClip(const Clip &clip) {
 
     unsubscribe();
-    
+
     size_t nfft = std::min(1000000ull, clip.getDurationFrames()) & (~1ll);
 
     auto nextPowerOfTwo = [](size_t n) {
@@ -30,8 +30,8 @@ void FFT_Analyzer::analyzeClip(const Clip &clip) {
 
     PLOG_DEBUG << "Analyzing " << nfft << " frames with fft";
 
-    kiss_fftr_cfg cfg = kiss_fftr_alloc(nfft, 0 ,0,0 );
-    
+    KissFFTR fftr(nfft, true);
+
     std::vector<float> cx_in(nfft);
     std::vector<kiss_fft_cpx> cx_out(nfft / 2 + 1);
 
@@ -49,16 +49,13 @@ void FFT_Analyzer::analyzeClip(const Clip &clip) {
     WindowFunction::applyInPlace<1>(window, cx_in.data(), cx_in.size());
 
     // applying fft
-    kiss_fftr( cfg , cx_in.data() , cx_out.data() );
+    fftr.forward(cx_in.data(), cx_out.data());
 
     auto clk_end = std::chrono::high_resolution_clock::now();
 
     analyze_time = (clk_end - clk_start) / 1.0s;
     PLOG_DEBUG << "Fftr took " << analyze_time;
     
-    kiss_fft_free(cfg);
-
-
     // const size_t bin_count = std::min(1000ul, cx_out.size() );
     amps.resize(cx_out.size(), 0);
 
@@ -86,11 +83,11 @@ void FFT_Analyzer::analyzeBuffer() {
     const std::vector<audio_sample_t> &data = buffer_->readerGetReadyBuffer();
 
     int nfft = (data.size() / INNER_CHANNELS) & (~1ull); // nfft must be even 
-    if (cached_nfft != nfft) {
-        cached_nfft = nfft;
-        window = WindowFunction::generate(WindowFunction::Type::Hann, nfft);
-        kiss_fftr_free(fft_cfg);
-        fft_cfg = kiss_fftr_alloc(nfft, 0, NULL, NULL);
+
+    if (wfftr.getNfft() != nfft) {
+        wfftr = WindowedKissFFTR(nfft, window_type, true);
+    } else if (wfftr.getType() != window_type) {
+        wfftr.recalcWindow(window_type);
     }
 
     using namespace std::chrono_literals;
@@ -103,11 +100,9 @@ void FFT_Analyzer::analyzeBuffer() {
         temp_in[idx] = (data[idx*2] + data[idx*2+1] ) / 2;
     }
     
-    // applying window
-    WindowFunction::applyInPlace<1>(window, temp_in.data(), temp_in.size());
 
-    // applying fft
-    kiss_fftr( fft_cfg , temp_in.data() , temp_out.data() );
+    // applying window and fft
+    wfftr.forward(temp_in.data() , temp_out.data() );
 
 
     amps.resize(temp_out.size(), 0);
@@ -147,6 +142,27 @@ void FFT_Analyzer::DrawAnalyzed() {
     ImGui::DragInt("Bins", &bins, 1, 10, amps.size());
     ImGui::DragFloat("Scale", &scale, 0.01, 0.01, 20);
     ImGui::DragInt("Cutoff idx", &cutoff_idx, 1, 10, amps.size());
+
+    static int window_idx = 1;
+    const int window_count = 4;
+    const char * const window_labels[] = {
+        "Rectangle [NONE]",
+        "Hann",
+        "Hamming",
+        "Blackman"
+    };
+    using wType = WindowFunction::Type;
+    const wType window_types[] = {
+        wType::Rectangle,
+        wType::Hann,
+        wType::Hamming,
+        wType::Blackman
+    };
+
+    if (ImGui::ListBox("Window type", &window_idx, window_labels,
+        window_count)) {
+        window_type = window_types[window_idx];
+    }
 
     static std::vector<float> amps_bin;
     amps_bin.resize(bins);
