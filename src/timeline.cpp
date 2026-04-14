@@ -2,6 +2,58 @@
 
 namespace waves {
 
+/* ================= ReadableStreamingBuffer ==== */
+
+ReadableStreamingBuffer::ReadableStreamingBuffer(std::mutex& mtx_, size_t elems): 
+    mtx(mtx_) 
+{
+    buffers[0].resize(elems);
+    buffers[1].resize(elems);
+    buffers[2].resize(elems);
+}
+
+std::vector<audio_sample_t> &ReadableStreamingBuffer::writerGetBuffer(size_t elems) {
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+
+        if (writer_buffer >= 0) {
+            PLOG_ERROR << "Writer must release buffer first\n"
+                    << "Assuming writer finished, marking it as latest buffer";
+            latest_buffer = writer_buffer;
+        }
+
+        // searching buffer that is not taken by reader and is not latest
+        for (int16_t i = 0; i < 3; i++) {
+            if (latest_buffer != i && reader_buffer != i) {
+                writer_buffer = i;
+                break;
+            }
+        }
+    }
+
+    std::vector<audio_sample_t> &buf = buffers[writer_buffer];
+    buf.resize(elems);
+    std::fill(buf.begin(), buf.end(), 0);
+
+    return buf;
+}
+
+const std::vector<audio_sample_t> &ReadableStreamingBuffer::writerSentReadyBuffer() {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    latest_buffer = writer_buffer;
+    writer_buffer = -1;
+
+    return buffers[latest_buffer];
+}
+
+const std::vector<audio_sample_t> &ReadableStreamingBuffer::readerGetReadyBuffer() {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    reader_buffer = latest_buffer;
+
+    return buffers[reader_buffer];
+}
 
 /* ================= Clip     =================== */
 
@@ -85,35 +137,30 @@ std::optional<Clip> Clip::cut(ma_uint64 timeline_pos) {
 
 /* ================= Track    =================== */
 
-std::vector<audio_sample_t> &Track::renderFrames(ma_uint64 start_frame, ma_uint64 frame_count) {
+const std::vector<audio_sample_t> &Track::renderFrames(ma_uint64 start_frame, ma_uint64 frame_count) {
 
-    //! LOOKS LIKE TERRIBLE IDEA
-    if (frame_count * INNER_CHANNELS > rendering_buffer.size()) {
-        rendering_buffer.resize(frame_count * INNER_CHANNELS);
-    }
+    // clearing buffer and allocating memory if needed
+    std::vector<audio_sample_t> &buf = rendering_buffer.writerGetBuffer(frame_count*INNER_CHANNELS);
     
-    // clearing buffer
-    std::fill(rendering_buffer.begin(), rendering_buffer.begin() + frame_count * INNER_CHANNELS, 0);
-
     // early out when track is muted
-    if (mute) return rendering_buffer;
+    if (mute) return rendering_buffer.writerSentReadyBuffer();
 
     // rendering clips
     for (int clip_idx = 0; clip_idx < clips.size(); clip_idx++) {
         Clip& clip = clips[clip_idx];
-        clip.renderFrames(rendering_buffer, start_frame, frame_count);
+        clip.renderFrames(buf, start_frame, frame_count);
     }
 
     // applying effects (gain)
     float gain = dbToGain(gain_db);
 
     for (int i = 0; i < frame_count * INNER_CHANNELS; i++) {
-        rendering_buffer[i] *= gain;
+        buf[i] *= gain;
         // PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "track amp: " << rendering_buffer[i]*gain;
 
     }
 
-    return rendering_buffer;
+    return rendering_buffer.writerSentReadyBuffer();
 }
 
 /* ================= Clipboard ================== */
@@ -148,31 +195,25 @@ std::optional<Clip> TimeLine::pasteFromClipboard() {
 
 /* ================= Timeline =================== */
 
-std::vector<audio_sample_t>& TimeLine::renderFrames(ma_uint64 start_frame, ma_uint64 frame_count) {
+const std::vector<audio_sample_t>& TimeLine::renderFrames(ma_uint64 start_frame, ma_uint64 frame_count) {
 
-    //! LOOKS LIKE TERRIBLE IDEA
-    if (frame_count * INNER_CHANNELS > rendering_buffer.size()) {
-        rendering_buffer.resize(frame_count * INNER_CHANNELS);
-    }
-
-    // clearing buffer
-    std::fill(rendering_buffer.begin(), rendering_buffer.begin() + frame_count * INNER_CHANNELS, 0);
-
+    // clearing buffer and allocating memory if needed
+    std::vector<audio_sample_t> &buf = rendering_buffer.writerGetBuffer(frame_count * INNER_CHANNELS);
 
     float gain = dbToGain(gain_db);
 
 
     for (int track_idx = 0; track_idx < tracks.size(); track_idx++) {
-        auto &buffer = tracks[track_idx].renderFrames(start_frame, frame_count);
+        const auto &track_buf = getTrack(track_idx).renderFrames(start_frame, frame_count);
         for (int i = 0; i < frame_count * INNER_CHANNELS; i++) {
-            rendering_buffer[i] += buffer[i] * gain;
-            PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "timeline_amp: "<< rendering_buffer[i] <<
-                                                            " track_amp: " << buffer[i];
+            buf[i] += track_buf[i] * gain;
+            // PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "timeline_amp: "<< buf[i] <<
+                                                            // " track_amp: " << track_buf[i];
         }   
     }
     
 
-    return rendering_buffer;
+    return rendering_buffer.writerSentReadyBuffer();
 }
 
 
@@ -182,8 +223,8 @@ bool TimeLine::isValidClipId(ClipId_t id) {
 
 std::optional<ClipLoc> TimeLine::getTrackAndClipIdx(ClipId_t id) {
     for (size_t track_idx = 0; track_idx < tracks.size(); track_idx++) {
-        for (size_t clip_idx = 0; clip_idx < tracks[track_idx].clips.size(); clip_idx++) {
-            if (tracks[track_idx].clips[clip_idx].id == id) {
+        for (size_t clip_idx = 0; clip_idx < getTrack(track_idx).clips.size(); clip_idx++) {
+            if (getTrack(track_idx).clips[clip_idx].id == id) {
                 return ClipLoc{track_idx, clip_idx};
             }
         }
@@ -195,7 +236,7 @@ std::optional<ClipLoc> TimeLine::getTrackAndClipIdx(ClipId_t id) {
 Clip *TimeLine::getClipById(ClipId_t id) {
     auto loc = getTrackAndClipIdx(id);
     if (loc)
-        return &tracks[loc->track_idx].clips[loc->clip_idx];
+        return &getTrack(loc->track_idx).clips[loc->clip_idx];
 
     return nullptr;
 }
@@ -207,14 +248,14 @@ void TimeLine::removeClipByLoc(ClipLoc loc) {
         return;
     }
 
-    if (tracks[loc.track_idx].clips.size() <= loc.clip_idx) {
+    if (getTrack(loc.track_idx).clips.size() <= loc.clip_idx) {
         return;
     }
 
     // Synchonized deletion
     mtx.lock();
 
-    std::vector<Clip> &clips = tracks[loc.track_idx].clips;
+    std::vector<Clip> &clips = getTrack(loc.track_idx).clips;
     clips.erase(clips.begin() + loc.clip_idx);
 
     mtx.unlock();
@@ -241,23 +282,22 @@ void TimeLine::moveClipToTrack(ClipId_t id, int track_idx) {
     if (!loc || loc->track_idx == track_idx) return;
     auto [track_i, clip_i] = *loc;
 
-    if (track_idx >= tracks.size())
-        tracks.resize(track_idx+1);
-    
-    std::vector<Clip>& old_clips = tracks[track_i].clips;
-
-    tracks[track_idx].addClip(old_clips[clip_i]);
+    std::vector<Clip>& old_clips = getTrack(track_i).clips;
+    addClip(old_clips[clip_i], track_idx);
 
     removeClipByLoc(*loc);
 }
 
+void TimeLine::addTrack() {
+    tracks.emplace_back(render_buffer_mtx);
+}
 
 ClipId_t TimeLine::addClip(const Clip& clip, int track_idx) {
     if (track_idx < 0) return CLIP_NONE;
-    if (track_idx >= tracks.size())
-        tracks.resize(track_idx+1);
+    while (track_idx >= tracks.size())
+        addTrack();
 
-    tracks[track_idx].addClip(clip);
+    getTrack(track_idx).addClip(clip);
 
     return clip.id;
 }

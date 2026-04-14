@@ -9,7 +9,7 @@ namespace waves {
 class Editor;
 
 using encoder_callback_t = 
-    std::vector<audio_sample_t> &(void *data, uint64_t start_frame, uint64_t frame_count);
+    const std::vector<audio_sample_t> &(*)(void *data, uint64_t start_frame, uint64_t frame_count);
 
 class Exporter {
 

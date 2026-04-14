@@ -2,6 +2,7 @@
 #include <atomic>
 #include <cmath>
 #include <mutex>
+#include <shared_mutex>
 #include "common.h"
 
 #include "miniaudio.h"
@@ -134,13 +135,88 @@ public:
 
 inline ClipId_t Clip::unique_id_ = 0;
 
+// Use case: 
+// Audio thread -> renders pack of frames and then uses them on next stage
+// GUI thread   -> gets latest pack of rendered frames for visualization
+// Overall data flow is controlled by audio thread
+struct ReadableStreamingBuffer {
+private:
+    std::vector<audio_sample_t> buffers[3];
+    std::int16_t latest_buffer = 0;
+    std::int16_t reader_buffer = 0; 
+    std::int16_t writer_buffer = -1; 
+
+    std::mutex& mtx;
+
+public:
+    ReadableStreamingBuffer(std::mutex& mtx_, size_t elems);
+    /* =============== WRITER THREAD ========================== */
+
+    // Get free buffer filled with zeros
+    std::vector<audio_sample_t> &writerGetBuffer(size_t elems);
+    // Use after writerGetBuffer to mark it as ready 
+    // It is guaranteed that this buffer will be read only at least until next getBuffer() call
+    // Also this buffer won't be rewritten if reader took it
+    const std::vector<audio_sample_t> &writerSentReadyBuffer();
+
+    /* ============== READER THREAD =========================== */
+
+    // Get latest buffer ready for processing
+    // Also releases previously tooken buffer
+    const std::vector<audio_sample_t> &readerGetReadyBuffer();
+
+};
+
+// // Data structure to seamlessy use double bufferization in audio rendering 
+// struct DoubleBuffer {
+// private:
+//     std::vector<audio_sample_t> buffers[2];
+//     // std::shared_mutex smtx;
+
+//     uint32_t current_idx = 0; 
+//     //! DANGEROUS
+//     std::vector<audio_sample_t> *finished;
+//     // current_idx     -> current
+//     // 1 - current_idx -> finished
+// public:
+
+//     DoubleBuffer(size_t size) {
+//         buffers[0].resize(size);
+//         buffers[1].resize(size);
+//         finished = &buffers[1];
+//     }
+
+//     std::vector<audio_sample_t> &getCurrent() { return buffers[current_idx]; }
+//     std::vector<audio_sample_t> &getFinished() { return buffers[1-current_idx]; }
+
+//     std::vector<audio_sample_t> &swapBufs() {
+//         current_idx = 1 - current_idx;
+//         finished = &getFinished();
+//         return getFinished();
+//     }
+//     audio_sample_t  operator[](size_t idx) const { return buffers[current_idx][idx]; } 
+//     audio_sample_t &operator[](size_t idx)       { return buffers[current_idx][idx]; }
+//     // Resize buffers
+//     void resize(size_t size) { 
+//         buffers[0].resize(size);
+//         buffers[1].resize(size);
+//     }
+//     // Prepare current buffer for rendering by filling it with zeros
+//     // May perform resizing
+//     void prepare(size_t elems) {
+//         auto &buf = getCurrent();
+//         //! Taking into account that vector never reallocates down 
+//         buf.resize(elems);
+//         std::fill(buf.begin(), buf.begin() + elems, 0);
+//     }
+// };
+
 class Track {
 public:
     std::string name;
     std::vector<Clip> clips;
 
-
-    std::vector<audio_sample_t> rendering_buffer;
+    ReadableStreamingBuffer rendering_buffer;
 
     float gain_db = 0;
     float pan = 0;
@@ -148,7 +224,7 @@ public:
 
     // ================ Methods ================================
 
-    std::vector<audio_sample_t> &renderFrames(ma_uint64 start_frame, ma_uint64 frame_count);
+    const std::vector<audio_sample_t> &renderFrames(ma_uint64 start_frame, ma_uint64 frame_count);
 
     void addClip(Clip&& clip) {
         PLOG_INFO << "Add clip '" << clip.name << "' [" << &clip << "] to track '" << name << "'";
@@ -162,7 +238,7 @@ public:
         clips.push_back(clip);
     }
 
-    Track() : name("None"), rendering_buffer(START_RENDER_BUFFER_SIZE*INNER_CHANNELS) {}
+    Track(std::mutex& mtx_) : name("None"), rendering_buffer(mtx_, START_RENDER_BUFFER_SIZE*INNER_CHANNELS) {}
 };
 
 struct ClipLoc {
@@ -187,25 +263,33 @@ struct TimelineClipboard {
     Copying from gui thread is always safe
 */
 class TimeLine {
+    std::list<Track> tracks;
 public:
-    std::vector<Track> tracks;
 
     std::atomic<ma_uint64> playhead_frame;
 
-    std::vector<audio_sample_t> rendering_buffer;
+    ReadableStreamingBuffer rendering_buffer;
 
     TimelineClipboard clipboard; 
 
     std::mutex &mtx; // shared mtx
 
+    std::mutex render_buffer_mtx;
 
-    TimeLine(std::mutex &mtx_): mtx(mtx_), rendering_buffer(START_RENDER_BUFFER_SIZE * INNER_CHANNELS) {}
+    TimeLine(std::mutex &mtx_): mtx(mtx_), rendering_buffer(render_buffer_mtx, START_RENDER_BUFFER_SIZE * INNER_CHANNELS) {}
 
     float gain_db = 0; // master gain
 
     // === Methods ===
+    size_t getTrackCount() { return tracks.size(); }
+    
+    Track &getTrack(size_t idx) {
+        auto elem = tracks.begin();
+        std::advance(elem, idx);
+        return *elem;
+    }
 
-    std::vector<audio_sample_t>& renderFrames(ma_uint64 start_frame, ma_uint64 frame_count);
+    const std::vector<audio_sample_t>& renderFrames(ma_uint64 start_frame, ma_uint64 frame_count);
 
     bool isValidClipId(ClipId_t id);
 
@@ -219,6 +303,7 @@ public:
 
     void moveClipToTrack(ClipId_t id, int track_idx); // uses mtx
 
+    void addTrack();
     ClipId_t addClip(const Clip& clip, int track_idx);
 
     // clipboard

@@ -130,7 +130,7 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
         ImGui::SeparatorText(label.c_str());
         ImGui::Checkbox("Mute", &clip.muted);
         ImGui::DragFloat("Gain", &clip.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
-        ImGui::DragFloat("Pan", &clip.pan, 0.05, -1, 1, "%.2f");
+        ImGui::DragFloat("Pan", &clip.pan, 0.01, -1, 1, "%.2f");
         if (ImGui::Button("FFT")) {
             analyzer.analyzeClip(clip);
         }
@@ -307,6 +307,12 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
     
     ID_GUARD(&track.gain_db,
         ImGui::DragFloat("Gain", &track.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
+    );
+
+    ID_GUARD(&track.rendering_buffer, 
+        if (ImGui::Button("FFT Spectr")) {
+            analyzer.subscribeToBuffer(&track.rendering_buffer);
+        }
     );
 
     ImGui::EndChild();
@@ -513,8 +519,8 @@ void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
 
     // === 1. Drawing tracks
     ImGui::SetCursorScreenPos(canvas_pos + ImVec2{0,grid_line_header});
-    for (int idx = 0; idx < timeline.tracks.size(); idx++) {
-        DrawTrack(timeline.tracks[idx], idx%2);
+    for (int idx = 0; idx < timeline.getTrackCount(); idx++) {
+        DrawTrack(timeline.getTrack(idx), idx%2);
 
     }
 

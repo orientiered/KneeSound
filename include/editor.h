@@ -51,7 +51,9 @@ public:
         playback_state(mtx, media_pool, timeline),
         player(ma_format_f32, INNER_CHANNELS, INNER_SAMPLE_RATE, &Editor::data_callback, &playback_state)
     {
-        timeline.tracks.push_back(Track());
+        timeline.addTrack();
+        // timeline.tracks.resize(1);
+        // timeline.tracks.emplace_back();
         PLOG_INFO << "Editor class initialized";
     }
 

@@ -95,7 +95,7 @@ void Exporter::encodeAudio(encoder_callback_t callback, void *data) {
                                 export_end_frame - current_frame :
                                 step;
 
-        std::vector<audio_sample_t> &frames = callback(data, current_frame, frame_count);
+        const std::vector<audio_sample_t> &frames = callback(data, current_frame, frame_count);
         current_frame += frame_count;
         writeByteSequence(output_file, frames);
 
@@ -178,7 +178,7 @@ int32_t Exporter::setEndFrame(int32_t frame) {
 
 /* ========================== EXPORT CALLBACK =========================== */
 
-static std::vector<audio_sample_t> &timeline_render_callback(void *data, uint64_t start_frame, uint64_t frame_count) {
+static const std::vector<audio_sample_t> &timeline_render_callback(void *data, uint64_t start_frame, uint64_t frame_count) {
     TimeLine *timeline = reinterpret_cast<TimeLine *>(data);
 
     return timeline->renderFrames(start_frame, frame_count);
