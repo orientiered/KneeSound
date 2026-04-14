@@ -1,5 +1,6 @@
 #include "fft_analyzer.h"
 
+#include "fft_window.h"
 #include "kiss_fftr.h"
 #include "imgui.h"
 #include <algorithm>
@@ -8,6 +9,8 @@ namespace waves {
 
 void FFT_Analyzer::analyzeClip(const Clip &clip) {
 
+    unsubscribe();
+    
     size_t nfft = std::min(1000000ull, clip.getDurationFrames()) & (~1ll);
 
     auto nextPowerOfTwo = [](size_t n) {

@@ -5,7 +5,10 @@
 #include <shared_mutex>
 #include "common.h"
 
+#include "kiss_fftr.h"
 #include "miniaudio.h"
+
+#include "buffer_utils.h"
 
 namespace waves {
 
@@ -123,94 +126,23 @@ public:
 
     }
 
-    // Clip(const Clip& other) = default;
-    // Clip(Clip&& other) noexcept = default;
-
-    // Clip& operator=(const Clip& other) = default;
-    // Clip(const Clip& other): source(other.source), name(other.name), timeline_start_frame(other.timeline_start_frame),
-    //     source_start_frame(other.source_start_frame), source_end_frame(other.source_end_frame) {
-    //     id = unique_id_++;
-    // }
 };
 
 inline ClipId_t Clip::unique_id_ = 0;
 
-// Use case: 
-// Audio thread -> renders pack of frames and then uses them on next stage
-// GUI thread   -> gets latest pack of rendered frames for visualization
-// Overall data flow is controlled by audio thread
-struct ReadableStreamingBuffer {
-private:
-    std::vector<audio_sample_t> buffers[3];
-    std::int16_t latest_buffer = 0;
-    std::int16_t reader_buffer = 0; 
-    std::int16_t writer_buffer = -1; 
 
-    std::mutex& mtx;
+/* ========================== EQUALIZER ======================== */
+class Equalizer {
+private:
+    kiss_fftr_cfg forward_cfg;
+    kiss_fftr_cfg inverse_cfg;
 
 public:
-    ReadableStreamingBuffer(std::mutex& mtx_, size_t elems);
-    /* =============== WRITER THREAD ========================== */
 
-    // Get free buffer filled with zeros
-    std::vector<audio_sample_t> &writerGetBuffer(size_t elems);
-    // Use after writerGetBuffer to mark it as ready 
-    // It is guaranteed that this buffer will be read only at least until next getBuffer() call
-    // Also this buffer won't be rewritten if reader took it
-    const std::vector<audio_sample_t> &writerSentReadyBuffer();
-
-    /* ============== READER THREAD =========================== */
-
-    // Get latest buffer ready for processing
-    // Also releases previously tooken buffer
-    const std::vector<audio_sample_t> &readerGetReadyBuffer();
-
+    
 };
 
-// // Data structure to seamlessy use double bufferization in audio rendering 
-// struct DoubleBuffer {
-// private:
-//     std::vector<audio_sample_t> buffers[2];
-//     // std::shared_mutex smtx;
-
-//     uint32_t current_idx = 0; 
-//     //! DANGEROUS
-//     std::vector<audio_sample_t> *finished;
-//     // current_idx     -> current
-//     // 1 - current_idx -> finished
-// public:
-
-//     DoubleBuffer(size_t size) {
-//         buffers[0].resize(size);
-//         buffers[1].resize(size);
-//         finished = &buffers[1];
-//     }
-
-//     std::vector<audio_sample_t> &getCurrent() { return buffers[current_idx]; }
-//     std::vector<audio_sample_t> &getFinished() { return buffers[1-current_idx]; }
-
-//     std::vector<audio_sample_t> &swapBufs() {
-//         current_idx = 1 - current_idx;
-//         finished = &getFinished();
-//         return getFinished();
-//     }
-//     audio_sample_t  operator[](size_t idx) const { return buffers[current_idx][idx]; } 
-//     audio_sample_t &operator[](size_t idx)       { return buffers[current_idx][idx]; }
-//     // Resize buffers
-//     void resize(size_t size) { 
-//         buffers[0].resize(size);
-//         buffers[1].resize(size);
-//     }
-//     // Prepare current buffer for rendering by filling it with zeros
-//     // May perform resizing
-//     void prepare(size_t elems) {
-//         auto &buf = getCurrent();
-//         //! Taking into account that vector never reallocates down 
-//         buf.resize(elems);
-//         std::fill(buf.begin(), buf.begin() + elems, 0);
-//     }
-// };
-
+/* ========================== TRACK ============================ */
 class Track {
 public:
     std::string name;
@@ -218,13 +150,15 @@ public:
 
     ReadableStreamingBuffer rendering_buffer;
 
+    const size_t render_block_size = RENDER_BLOCK_SIZE;
+    
     float gain_db = 0;
     float pan = 0;
     bool  mute = false;
 
     // ================ Methods ================================
 
-    const std::vector<audio_sample_t> &renderFrames(ma_uint64 start_frame, ma_uint64 frame_count);
+    const std::vector<audio_sample_t> &renderBlock(ma_uint64 start_frame);
 
     void addClip(Clip&& clip) {
         PLOG_INFO << "Add clip '" << clip.name << "' [" << &clip << "] to track '" << name << "'";
@@ -268,28 +202,36 @@ public:
 
     std::atomic<ma_uint64> playhead_frame;
 
+    std::mutex render_buffer_mtx;
     ReadableStreamingBuffer rendering_buffer;
 
     TimelineClipboard clipboard; 
 
     std::mutex &mtx; // shared mtx
 
-    std::mutex render_buffer_mtx;
+    const size_t render_block_size = RENDER_BLOCK_SIZE;
 
-    TimeLine(std::mutex &mtx_): mtx(mtx_), rendering_buffer(render_buffer_mtx, START_RENDER_BUFFER_SIZE * INNER_CHANNELS) {}
+    AudioBlockAdapter block_adapter;
+
+    TimeLine(std::mutex &mtx_): 
+        mtx(mtx_), 
+        rendering_buffer(render_buffer_mtx, START_RENDER_BUFFER_SIZE * INNER_CHANNELS),
+        block_adapter(render_block_size * INNER_CHANNELS * 2) {}
 
     float gain_db = 0; // master gain
 
     // === Methods ===
     size_t getTrackCount() { return tracks.size(); }
-    
+
     Track &getTrack(size_t idx) {
         auto elem = tracks.begin();
         std::advance(elem, idx);
         return *elem;
     }
 
-    const std::vector<audio_sample_t>& renderFrames(ma_uint64 start_frame, ma_uint64 frame_count);
+    const std::vector<audio_sample_t>& renderBlock(ma_uint64 start_frame);
+    
+    void renderFrames(audio_sample_t *out, ma_uint64 start_frame, ma_uint64 frame_count);
 
     bool isValidClipId(ClipId_t id);
 

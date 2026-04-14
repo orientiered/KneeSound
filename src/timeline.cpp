@@ -2,59 +2,6 @@
 
 namespace waves {
 
-/* ================= ReadableStreamingBuffer ==== */
-
-ReadableStreamingBuffer::ReadableStreamingBuffer(std::mutex& mtx_, size_t elems): 
-    mtx(mtx_) 
-{
-    buffers[0].resize(elems);
-    buffers[1].resize(elems);
-    buffers[2].resize(elems);
-}
-
-std::vector<audio_sample_t> &ReadableStreamingBuffer::writerGetBuffer(size_t elems) {
-    {
-        std::lock_guard<std::mutex> lock(mtx);
-
-        if (writer_buffer >= 0) {
-            PLOG_ERROR << "Writer must release buffer first\n"
-                    << "Assuming writer finished, marking it as latest buffer";
-            latest_buffer = writer_buffer;
-        }
-
-        // searching buffer that is not taken by reader and is not latest
-        for (int16_t i = 0; i < 3; i++) {
-            if (latest_buffer != i && reader_buffer != i) {
-                writer_buffer = i;
-                break;
-            }
-        }
-    }
-
-    std::vector<audio_sample_t> &buf = buffers[writer_buffer];
-    buf.resize(elems);
-    std::fill(buf.begin(), buf.end(), 0);
-
-    return buf;
-}
-
-const std::vector<audio_sample_t> &ReadableStreamingBuffer::writerSentReadyBuffer() {
-    std::lock_guard<std::mutex> lock(mtx);
-
-    latest_buffer = writer_buffer;
-    writer_buffer = -1;
-
-    return buffers[latest_buffer];
-}
-
-const std::vector<audio_sample_t> &ReadableStreamingBuffer::readerGetReadyBuffer() {
-    std::lock_guard<std::mutex> lock(mtx);
-
-    reader_buffer = latest_buffer;
-
-    return buffers[reader_buffer];
-}
-
 /* ================= Clip     =================== */
 
 
@@ -137,10 +84,10 @@ std::optional<Clip> Clip::cut(ma_uint64 timeline_pos) {
 
 /* ================= Track    =================== */
 
-const std::vector<audio_sample_t> &Track::renderFrames(ma_uint64 start_frame, ma_uint64 frame_count) {
+const std::vector<audio_sample_t> &Track::renderBlock(ma_uint64 start_frame) {
 
     // clearing buffer and allocating memory if needed
-    std::vector<audio_sample_t> &buf = rendering_buffer.writerGetBuffer(frame_count*INNER_CHANNELS);
+    std::vector<audio_sample_t> &buf = rendering_buffer.writerGetBuffer(render_block_size*INNER_CHANNELS);
     
     // early out when track is muted
     if (mute) return rendering_buffer.writerSentReadyBuffer();
@@ -148,15 +95,27 @@ const std::vector<audio_sample_t> &Track::renderFrames(ma_uint64 start_frame, ma
     // rendering clips
     for (int clip_idx = 0; clip_idx < clips.size(); clip_idx++) {
         Clip& clip = clips[clip_idx];
-        clip.renderFrames(buf, start_frame, frame_count);
+        clip.renderFrames(buf, start_frame, render_block_size);
     }
 
-    // applying effects (gain)
+    // applying effects (gain + pan)
     float gain = dbToGain(gain_db);
 
-    for (int i = 0; i < frame_count * INNER_CHANNELS; i++) {
-        buf[i] *= gain;
-        // PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "track amp: " << rendering_buffer[i]*gain;
+    auto process_frame = [&](float *in_out) {
+        float left = in_out[0], right = in_out[1];
+
+        float pan_left  = (pan <= 0) ? 1 : (1 - pan);
+        float pan_right = (pan >= 0) ? 1 : (1 + pan); 
+        float out_left  = left  * gain * pan_left;
+        float out_right = right * gain * pan_right; 
+
+        in_out[0] = out_left;
+        in_out[1] = out_right;
+    };
+
+    for (ma_uint64 idx = 0; idx < render_block_size; idx++) {
+        assert(INNER_CHANNELS == 2);
+        process_frame(&buf[idx*INNER_CHANNELS]);
 
     }
 
@@ -195,16 +154,17 @@ std::optional<Clip> TimeLine::pasteFromClipboard() {
 
 /* ================= Timeline =================== */
 
-const std::vector<audio_sample_t>& TimeLine::renderFrames(ma_uint64 start_frame, ma_uint64 frame_count) {
-
+const std::vector<audio_sample_t>& TimeLine::renderBlock(ma_uint64 start_frame) {
     // clearing buffer and allocating memory if needed
-    std::vector<audio_sample_t> &buf = rendering_buffer.writerGetBuffer(frame_count * INNER_CHANNELS);
+    std::vector<audio_sample_t> &buf = rendering_buffer.writerGetBuffer(render_block_size * INNER_CHANNELS);
 
     float gain = dbToGain(gain_db);
+    //TODO: INVALIDATE CACHE IF START_FRAME != NEXT EXPECTED FRAME
+    const size_t frame_count = render_block_size;
 
 
     for (int track_idx = 0; track_idx < tracks.size(); track_idx++) {
-        const auto &track_buf = getTrack(track_idx).renderFrames(start_frame, frame_count);
+        const auto &track_buf = getTrack(track_idx).renderBlock(start_frame);
         for (int i = 0; i < frame_count * INNER_CHANNELS; i++) {
             buf[i] += track_buf[i] * gain;
             // PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "timeline_amp: "<< buf[i] <<
@@ -215,6 +175,33 @@ const std::vector<audio_sample_t>& TimeLine::renderFrames(ma_uint64 start_frame,
 
     return rendering_buffer.writerSentReadyBuffer();
 }
+
+void TimeLine::renderFrames(audio_sample_t *out, ma_uint64 start_frame, ma_uint64 frame_count) {
+
+    ma_uint64 cur_frame = start_frame + block_adapter.size() / INNER_CHANNELS;
+    ma_uint64 frames_left = frame_count;
+
+    while (frames_left != 0) {
+        ma_uint64 step = std::min(ma_uint64(render_block_size), frames_left);
+
+        if (block_adapter.size() < step * INNER_CHANNELS) {
+            const auto &buffer = renderBlock(cur_frame);
+            cur_frame += render_block_size;
+
+            PLOG_VERBOSE_IF(g_debug_flags.block_adapter_logs) << "Pushing " << render_block_size << "frames";
+            block_adapter.push_bulk(buffer.data(), render_block_size * INNER_CHANNELS);    
+            PLOG_VERBOSE_IF(g_debug_flags.block_adapter_logs) << "Size = " << block_adapter.size() / INNER_CHANNELS << "frames";
+        }
+
+        PLOG_VERBOSE_IF(g_debug_flags.block_adapter_logs) << "Popping " << step << "frames";
+        block_adapter.pop_bulk(out, step * INNER_CHANNELS);
+        PLOG_VERBOSE_IF(g_debug_flags.block_adapter_logs) << "Size = " << block_adapter.size() / INNER_CHANNELS << "frames";
+
+        out += step * INNER_CHANNELS;
+        frames_left -= step;
+    }
+}
+
 
 
 bool TimeLine::isValidClipId(ClipId_t id) {

@@ -11,7 +11,7 @@
 namespace waves {
 
 // Predifiniiton
-class PlaybackState;
+class PlaybackController;
 
 struct TimelineInteraction {
     enum class Mode { None, Selecting, DraggingClip, ResizingClip } mode;
@@ -203,7 +203,7 @@ private:
     bool HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id);
 
 
-    void HandleInteractions(PlaybackState& playback, TimeLine& timeline);
+    void HandleInteractions(PlaybackController& playback, TimeLine& timeline);
 
 
     // ======== DRAWING ==============
@@ -221,7 +221,7 @@ private:
     void DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline, ImVec2 canvas_pos, ImVec2 size);
 
 public:
-    void DrawTimeline(PlaybackState& playback, TimeLine& timeline);
+    void DrawTimeline(PlaybackController& playback, TimeLine& timeline);
 
 };
 

@@ -2,7 +2,7 @@
 
 #include "common.h"
 
-#include "playback_state.h"
+#include "playback_controller.h"
 
 namespace waves {
 
@@ -13,8 +13,8 @@ public:
     void Draw(Editor& editor);
 private:
     void DrawSelectDialog(Editor& editor); 
-    void DrawOpenedFiles(PlaybackState& playback_state);
-    void DrawFile(PlaybackState& playback_state, SourceIt it, int track_idx, bool &erase);
+    void DrawOpenedFiles(PlaybackController& playback_state);
+    void DrawFile(PlaybackController& playback_state, SourceIt it, int track_idx, bool &erase);
 };
 
 }

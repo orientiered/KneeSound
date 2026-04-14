@@ -3,7 +3,7 @@
 #include "timeline_view.h"
 #include "imgui_misc.h"
 
-#include "playback_state.h"
+#include "playback_controller.h"
 
 namespace waves {
 
@@ -353,7 +353,7 @@ void TimelineView::DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline,
 
 /* ========================== Interaction ================================ */
 
-void TimelineView::HandleInteractions(PlaybackState& playback, TimeLine& timeline) {
+void TimelineView::HandleInteractions(PlaybackController& playback, TimeLine& timeline) {
 
     // 0 ~~ Mouse on empty space ~~
     if (hovered_on_bg) {
@@ -482,7 +482,7 @@ void TimelineView::HandleInteractions(PlaybackState& playback, TimeLine& timelin
 
 }
 
-void TimelineView::DrawTimeline(PlaybackState& playback, TimeLine& timeline) {
+void TimelineView::DrawTimeline(PlaybackController& playback, TimeLine& timeline) {
 
     // Timeline over all available space
     ImGui::BeginChild("Timeline_canvas", ImVec2(0, 0), ImGuiChildFlags_Borders, 

@@ -9,7 +9,7 @@
 #include "timeline.h"
 #include "timeline_view.h"
 
-#include "playback_state.h"
+#include "playback_controller.h"
 
 #include "media_pool_view.h"
 #include "wav_exporter.h"
@@ -27,7 +27,7 @@ public:
 
     MediaPool media_pool;
     TimeLine timeline;
-    PlaybackState playback_state;
+    PlaybackController playback_state;
 
     MediaPoolView mp_view;
     TimelineView tl_view{static_cast<ma_uint64>(1e6), 1e-2};
@@ -39,7 +39,7 @@ public:
     bool show_export_window = false;
 
     static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
-        PlaybackState *playback_state = reinterpret_cast<PlaybackState*>(pDevice->pUserData);
+        PlaybackController *playback_state = reinterpret_cast<PlaybackController*>(pDevice->pUserData);
         playback_state->getFrames(pOutput, frameCount);
 
         return;

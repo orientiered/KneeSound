@@ -86,6 +86,8 @@ void Exporter::encodeAudio(encoder_callback_t callback, void *data) {
     uint64_t current_frame = export_start_frame;
     uint64_t step = preferred_render_step;
 
+    std::vector<audio_sample_t> frames(step*INNER_CHANNELS);
+
     while (current_frame < export_end_frame) {
         // updating status
         current_export_frame_ = current_frame; 
@@ -95,7 +97,9 @@ void Exporter::encodeAudio(encoder_callback_t callback, void *data) {
                                 export_end_frame - current_frame :
                                 step;
 
-        const std::vector<audio_sample_t> &frames = callback(data, current_frame, frame_count);
+        frames.resize(frame_count * INNER_CHANNELS);
+        callback(data, frames.data(), current_frame, frame_count);
+
         current_frame += frame_count;
         writeByteSequence(output_file, frames);
 
@@ -108,7 +112,7 @@ void Exporter::encodeAudio(encoder_callback_t callback, void *data) {
 
 /* ================== ENCODE START ============================= */
 bool Exporter::startEncoding(encoder_callback_t callback, void *data) {
-    if (!output_file.good()) {
+    if (!output_file.is_open()) {
         PLOG_ERROR << "Encoder: output file is not properly opened ";
         return false;
     }
@@ -151,8 +155,9 @@ bool Exporter::setOutputPath(const std::string &path) {
     PLOG_DEBUG << "Setting path " << path;
 
     output_file.open(path, std::ios::out | std::ios::trunc);
+    output_path = path;
 
-    return output_file.good();
+    return output_file.is_open();
 }
 
 int32_t Exporter::setStartFrame(int32_t frame) {
@@ -178,10 +183,10 @@ int32_t Exporter::setEndFrame(int32_t frame) {
 
 /* ========================== EXPORT CALLBACK =========================== */
 
-static const std::vector<audio_sample_t> &timeline_render_callback(void *data, uint64_t start_frame, uint64_t frame_count) {
+void timeline_render_callback(void *data, audio_sample_t *out, uint64_t start_frame, uint64_t frame_count) {
     TimeLine *timeline = reinterpret_cast<TimeLine *>(data);
 
-    return timeline->renderFrames(start_frame, frame_count);
+    timeline->renderFrames(out, start_frame, frame_count);
 }
 
 /* ========================== EXPORTER VIEW IN EDITOR =================== */
@@ -266,6 +271,7 @@ void Exporter_View::Draw(Editor& editor) {
         if (ImGui::Button("Export")) {  
             encoder_finished = false;
             error_on_start = !exporter.startEncoding(timeline_render_callback, &editor.timeline);
+            if (!error_on_start) encoder_started = true;
         }
 
     }

@@ -43,7 +43,7 @@ void MediaPoolView::DrawSelectDialog(Editor& editor) {
 }
 
 
-void MediaPoolView::DrawFile(PlaybackState& playback_state, SourceIt it, int track_idx, bool &erase) {
+void MediaPoolView::DrawFile(PlaybackController& playback_state, SourceIt it, int track_idx, bool &erase) {
     MediaPool &pool = playback_state.pool;
     const AudioSourcePtr src = *it;
 
@@ -114,7 +114,7 @@ void MediaPoolView::DrawFile(PlaybackState& playback_state, SourceIt it, int tra
     }
 }
 
-void MediaPoolView::DrawOpenedFiles(PlaybackState& playback_state) {
+void MediaPoolView::DrawOpenedFiles(PlaybackController& playback_state) {
     int track_idx = 0;
     MediaPool& media_pool = playback_state.pool;
     SourceIt eraseIt = media_pool.end();

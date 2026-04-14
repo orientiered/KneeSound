@@ -2,14 +2,14 @@
 
 #include <fstream>
 #include "common.h"
-#include "playback_state.h"
+#include "playback_controller.h"
 
 namespace waves {
 
 class Editor;
 
 using encoder_callback_t = 
-    const std::vector<audio_sample_t> &(*)(void *data, uint64_t start_frame, uint64_t frame_count);
+   void (*)(void *data, audio_sample_t *out, uint64_t start_frame, uint64_t frame_count);
 
 class Exporter {
 

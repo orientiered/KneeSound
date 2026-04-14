@@ -17,7 +17,7 @@ enum SampleSource {
     TIMELINE_SRC
 }; 
 
-struct PlaybackState {
+struct PlaybackController {
     bool isPlaying = false;
     SampleSource src = POOL_SRC;
 
@@ -28,56 +28,27 @@ struct PlaybackState {
     TimeLine& timeline;
 
     std::mutex &mtx;
+    
 
-    PlaybackState(std::mutex &mtx_, MediaPool& pool_, TimeLine& timeline_) : 
+    PlaybackController(std::mutex &mtx_, MediaPool& pool_, TimeLine& timeline_) : 
         mtx(mtx_), pool(pool_), timeline(timeline_) {}
 
     void getFrames(void *out, ma_uint32 frameCount) {
-        mtx.lock();
+        std::lock_guard<std::mutex> lock_guard(mtx);
         
+        if (!isPlaying) return;
+
         if (src == POOL_SRC) {
             getFramesFromPool(out, frameCount);
         } else {
             getFramesFromTimeline(out, frameCount);
         }
 
-        mtx.unlock();
     }
 
-    void getFramesFromTimeline(void *out, ma_uint32 frameCount) {
-        if (isPlaying) {
-            PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << 
-                "timeline callback: writing " << frameCount << " frames to " << out;
+    void getFramesFromTimeline(void *out, ma_uint32 frameCount);
 
-            auto &buffer = timeline.renderFrames(timeline.playhead_frame, frameCount);
-            std::copy(buffer.begin(), buffer.begin() + frameCount * INNER_CHANNELS, reinterpret_cast<float*>(out));
-
-            timeline.playhead_frame.fetch_add(frameCount);
-        }
-        
-    }
-
-    void getFramesFromPool(void* out, ma_uint32 frameCount) { 
-        if (isPlaying) {
-            PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << 
-                "pool callback: writing " << frameCount << " frames to " << out;
-
-            const std::vector<float>& pcmData = (*currentTrack)->pcmData;
-            const size_t trackLen = pcmData.size();
-            const int64_t trackLenInFrames = trackLen / INNER_CHANNELS;
-
-            auto startIt = (INNER_CHANNELS*currentFrame >= trackLen ) ?
-                            pcmData.end() :
-                            pcmData.begin() + INNER_CHANNELS*currentFrame;
-            auto endIt = (INNER_CHANNELS*(currentFrame + frameCount) >= trackLen) ?
-                            pcmData.end() :
-                            pcmData.begin() + INNER_CHANNELS*(currentFrame + frameCount);
-
-            std::copy(startIt, endIt, reinterpret_cast<float*>(out));
-            
-            currentFrame = std::min(trackLenInFrames, currentFrame +frameCount);
-        }
-    }
+    void getFramesFromPool(void* out, ma_uint32 frameCount);
 
     void handleToggleFromTimeline() {
         PLOG_DEBUG << "Playback toggle from timeline";
