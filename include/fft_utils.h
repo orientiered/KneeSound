@@ -21,15 +21,15 @@ public:
         return 1.0f;
     }
     static float Hann(size_t n, size_t size) { 
-        return 0.5f * (1.0f - std::cos(2.0f * M_PI * n / (size - 1)));
+        return 0.5f * (1.0f - std::cos(2.0f * M_PI * static_cast<float>(n) / static_cast<float>(size) ));
     }
     static float Hamming(size_t n, size_t size) {
-        return 0.54f - 0.46f * std::cos(2.0f * M_PI * n / (size - 1));
+        return 0.54f - 0.46f * std::cos(2.0f * M_PI * n / size );
     }
     static float Blackman(size_t n, size_t size) {
         return 0.42f 
-                - 0.5f  * std::cos(2.0f * M_PI * n / (size - 1))
-                + 0.08f * std::cos(4.0f * M_PI * n / (size - 1));
+                - 0.5f  * std::cos(2.0f * M_PI * n / size )
+                + 0.08f * std::cos(4.0f * M_PI * n / size );
     }
 
     using window_func_t = float (*)(size_t n, size_t size);
@@ -114,12 +114,20 @@ public:
         if (!inverse_cfg) return false;
 
         kiss_fftri(inverse_cfg, freq_data, time_data);
+
         return true;
     }  
 
-    KissFFTR(const KissFFTR& other) {
-        KissFFTR(other.nfft_, other.forward_cfg, other.inverse_cfg);
+    void normalize(float *time_data) {
+        // normalization
+        const float scale = 1.0f / static_cast<float>(getNfft());
+        for(size_t i = 0; i < getNfft(); ++i) {
+            time_data[i] *= scale;
+        }
     }
+
+    KissFFTR(const KissFFTR& other) : 
+        KissFFTR(other.nfft_, other.forward_cfg, other.inverse_cfg) {}
 
     KissFFTR& operator=(KissFFTR other) {
         swap(*this, other);
@@ -153,9 +161,7 @@ public:
     WindowedKissFFTR(size_t nfft, WindowFunction::Type window_type, bool forward = true, bool inverse = false): 
         window_type_(window_type),
         fftr(nfft, forward, inverse) {
-        if (forward) {
-            window_ = WindowFunction::generate(window_type, nfft);
-        }
+        window_ = WindowFunction::generate(window_type, nfft);
     }
 
     bool hasForward() const noexcept { return fftr.hasForward(); }
@@ -178,8 +184,13 @@ public:
     }
 
     bool inverse(kiss_fft_cpx *freq_data, float *time_data) {
+        if (!hasInverse()) return false;
+
         return fftr.inverse(freq_data, time_data);
     } 
+
+    void normalize(float *time_data) { fftr.normalize(time_data); }
+
 
 };
 

@@ -5,6 +5,7 @@
 #include <shared_mutex>
 #include "common.h"
 
+#include "fft_utils.h"
 #include "kiss_fftr.h"
 #include "miniaudio.h"
 
@@ -134,12 +135,44 @@ inline ClipId_t Clip::unique_id_ = 0;
 /* ========================== EQUALIZER ======================== */
 class Equalizer {
 private:
-    kiss_fftr_cfg forward_cfg;
-    kiss_fftr_cfg inverse_cfg;
+    WindowedKissFFTR wfftr_;
+
+    size_t hop_size_;
+    size_t channels_;
+
+    std::vector<float> freq_response_;
+    // overlapp and previous are stored sequentially, not interleaved
+    std::vector<audio_sample_t> overlap_add_;
+    std::vector<audio_sample_t> previous_block_;
+
+    std::vector<audio_sample_t> time_data;
+    std::vector<kiss_fft_cpx>   freq_data; 
 
 public:
+    Equalizer(size_t block_size, size_t channels):
+        wfftr_(2*block_size, WindowFunction::Type::Hann, true, true),
+        hop_size_(block_size), channels_(channels),
+        freq_response_(block_size + 1, 1.0f),
+        overlap_add_(hop_size_ * channels_, 0.0f),
+        previous_block_(hop_size_ * channels_, 0.0f),
+        time_data(2*block_size, 0.0f),
+        freq_data(block_size + 1) {}
 
-    
+    void reset() {
+        std::fill(overlap_add_.begin(), overlap_add_.end(), 0.0f);
+        std::fill(previous_block_.begin(), previous_block_.end(), 0.0f);
+    }
+
+    void processBlock(audio_sample_t *inout);
+    void setFreqResponse(const std::vector<float> response) {
+        if (response.size() != freq_response_.size())
+            throw std::invalid_argument("Frequency response size must be block_size + 1");
+
+        freq_response_ = response;
+    }
+private:
+    void prepareTimeData(audio_sample_t *in, size_t ch_idx);
+    void applyOverlap(audio_sample_t *out, size_t ch_idx);
 };
 
 /* ========================== TRACK ============================ */
@@ -156,6 +189,7 @@ public:
     float pan = 0;
     bool  mute = false;
 
+    Equalizer equalizer;
     // ================ Methods ================================
 
     const std::vector<audio_sample_t> &renderBlock(ma_uint64 start_frame);
@@ -172,7 +206,10 @@ public:
         clips.push_back(clip);
     }
 
-    Track(std::mutex& mtx_) : name("None"), rendering_buffer(mtx_, START_RENDER_BUFFER_SIZE*INNER_CHANNELS) {}
+    Track(std::mutex& mtx_) : 
+        name("None"), 
+        rendering_buffer(mtx_, START_RENDER_BUFFER_SIZE*INNER_CHANNELS),
+        equalizer(render_block_size, INNER_CHANNELS) {}
 };
 
 struct ClipLoc {
