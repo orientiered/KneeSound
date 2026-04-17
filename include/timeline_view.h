@@ -4,6 +4,7 @@
 
 #include "imgui.h"
 #include <imgui_internal.h>
+#include <unordered_map>
 
 #include "timeline.h"
 #include "fft_analyzer.h"
@@ -24,6 +25,37 @@ struct TimelineInteraction {
 
 };
 
+struct ClipView {
+    std::string name = "Clip";
+
+    // Color palette
+    ImU32 col_clip_selected = IM_COL32(170, 190, 170, 220); 
+    ImU32 col_clip_base     = IM_COL32(150, 160, 150, 180); 
+    ImU32 col_clip_text     = IM_COL32(255, 255, 255, 255);
+
+    // Waveform
+    ImU32 col_waveform      = IM_COL32(255, 255, 255, 100);
+    float gain_waveform     = 1.0f; ///< Amplification coefficient for waveform
+};
+
+struct TrackView {
+    std::string name = "Track";
+
+    ImU32 col_track_bg_odd  = IM_COL32(80, 80, 80, 200); 
+    ImU32 col_track_bg_even = IM_COL32(60, 60, 60, 200);
+};
+
+struct TimelineClipboard {
+    std::optional<Clip> data;
+    std::optional<ClipView> style;
+
+};
+
+struct ClipboardPayload {
+    Clip clip;
+    ClipView style;
+};
+
 class TimelineView {
     ma_uint64 total_frames;      // общая длина проекта
 
@@ -33,13 +65,8 @@ class TimelineView {
 
     ma_uint64 scroll_frame;      // кадр, соответствующий левому краю видимой области
 
-    ImU32 col_waveform      = IM_COL32(255, 255, 255, 100);
-    ImU32 col_clip_selected = IM_COL32(170, 190, 170, 220); 
-    ImU32 col_clip_base     = IM_COL32(150, 160, 150, 180); 
-    ImU32 col_clip_text     = IM_COL32(255, 255, 255, 255);
-
-    ImU32 col_track_bg_odd  = IM_COL32(80, 80, 80, 200); 
-    ImU32 col_track_bg_even = IM_COL32(60, 60, 60, 200);
+    ClipView clip_view_default{};
+    TrackView track_view_default{};
 
     ImU32 col_grid_line = IM_COL32(10, 10, 10, 255);
     ImU32 col_grid_line_text = IM_COL32(200, 200, 200, 255);
@@ -67,7 +94,7 @@ class TimelineView {
     const float GAIN_MIN = -100;
     const float GAIN_MAX = +40;
 
-    // drawing state
+    // drawing state on current frame
 
     ImVec2 canvas_pos;      ///< upper-left corner of whole timeline window
     ImVec2 full_canvas_size;
@@ -85,14 +112,55 @@ class TimelineView {
     bool   focused;         ///< timeline window is focused
 
     TimelineInteraction interaction;
+
+    std::unordered_map<ClipId_t, ClipView> clip_view;
+    std::unordered_map<TrackId_t, TrackView> track_view;
+    //TODO: store EffectId to enable multiple equalizers for each track
+    std::unordered_map<TrackId_t, EqualizerSettings> equalizer_settings;
+
+    TimelineClipboard clipboard; 
+
+    TimeLine &timeline_; /// < Viewed timeline
 public:
 
     FFT_Analyzer analyzer;
 
-    TimelineView(ma_uint64 len, float scale):
+    TimelineView(TimeLine &timeline, ma_uint64 len, float scale):
+        timeline_(timeline),
         total_frames(len), pixels_per_frame(scale), scroll_frame(0)
     {}
 
+    // === Clips and tracks view getters
+    ClipView &getClipView(const Clip& clip) { return getClipView(clip.id); }
+
+    ClipView &getClipView(ClipId_t id) {
+        auto it = clip_view.find(id);
+        if (it == clip_view.end() ) {
+            if (!timeline_.isValidClipId(id)) {
+                PLOG_ERROR << "Invalid clip id";
+            }
+
+            clip_view[id] = clip_view_default;
+            return clip_view[id];
+        }
+        else return it->second;
+    }
+
+    TrackView &getTrackView(const Track& track) { return getTrackView(track.id); }
+
+    TrackView &getTrackView(TrackId_t id) {
+        auto it = track_view.find(id);
+        if (it == track_view.end()) {
+            if (!timeline_.isValidTrackId(id)) {
+                PLOG_ERROR << "Invalid track id";
+            }
+            track_view[id] = track_view_default;
+            return track_view[id];
+        }
+        else return it->second;
+    }
+
+    // === Various conversion functions
     ma_uint64 getTimelineLen() const { 
         return total_frames; 
     }
@@ -161,56 +229,43 @@ public:
 
     // === УТИЛИТЫ ДЛЯ ЗУМА И СКРОЛЛА ===
 
-    void zoomAtPixel(float pixel_x, float zoom_factor) {
-        float new_ppf = pixels_per_frame * zoom_factor;
-        if (new_ppf > MAX_PPF || new_ppf < MIN_PPF) {
-            return;
-        }
+    void zoomAtPixel(float pixel_x, float zoom_factor);
 
-        ma_int64 frame_under_cursor = pixelToFrame(pixel_x);
-        // Увеличиваем масштаб, сохраняя позицию под курсором
-        pixels_per_frame = new_ppf;
-        // Корректируем скролл, чтобы кадр под курсором остался на месте
-        // Scroll can't be less that zero
-        scroll_frame = std::max(0ll, frame_under_cursor - static_cast<ma_int64>(pixel_x / pixels_per_frame));
-    }
+    void scrollByFrames(int64_t delta_frames);
 
-    void scrollByFrames(int64_t delta_frames) {
-        PLOG_DEBUG << "Scrolling timeline by " << delta_frames << " frames";
-        if (delta_frames > 0) {
-            scroll_frame = std::min(scroll_frame + delta_frames, total_frames);
-        } else {
-            scroll_frame = (scroll_frame > static_cast<ma_uint64>(-delta_frames))
-                ? scroll_frame + delta_frames : 0;
-        }
-    }
-
-    std::pair<int, uint32_t> mousePosToTrackAndFrame() {
-        int track_idx = (mouse_pos.y - field_pos.y - grid_line_header) / track_height;
-
-        uint32_t start_frame = 0;
-        if ((mouse_pos.x - field_pos.x) >= 0) 
-            start_frame = pixelToFrame(mouse_pos.x - field_pos.x);
-
-        return std::make_pair(track_idx, start_frame);
-    }
+    std::pair<int, uint32_t> mousePosToTrackAndFrame();
 
     // ====
 private:
+    // general work with timeline
+    void removeClipFromTimeline(ClipId_t id);
+    ClipId_t addClipToTimeline(const Clip& clip, int tr_idx, std::optional<ClipView> style = std::nullopt);
+
+    void expandTimelineForClip(ClipId_t id);
+    void expandTimelineForClip(const Clip& clip);
+
+    // clipboard
+    void copyToClipboard(ClipId_t id);
+    void cutToClipboard(ClipId_t id);  // uses mtx
+
+    std::optional<ClipboardPayload> pasteFromClipboard();
+
+    // ====
+
     std::pair<bool, bool> HandleClipBaseInteraction(const Clip& clip);
 
-    bool HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_delta);
-    bool HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id);
+    bool HandleHorizontalClipDrag(ClipId_t clip_id, ImVec2 mouse_delta);
+    bool HandleVerticalClipDrag(ClipId_t clip_id);
 
 
-    void HandleInteractions(PlaybackController& playback, TimeLine& timeline);
+    void HandleInteractions(PlaybackController& playback);
 
 
     // ======== DRAWING ==============
 
     void DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2 canvas_size);
 
-
+    void DrawEqSettings(bool *enable, Equalizer &eq, EqualizerSettings &settings);
     void DrawTrack(Track& track, bool parity);
     // Track owns draw list for clip and waveform
     void DrawClip(ImDrawList* draw_list, Clip& clip, ImVec2 track_start_pos);
@@ -218,10 +273,10 @@ private:
     void DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
                       ImVec2 canvas_pos, float height, std::pair<ma_uint64, ma_uint64> clip_timeline_frames);
 
-    void DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline, ImVec2 canvas_pos, ImVec2 size);
+    void DrawPlayHead(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2 size);
 
 public:
-    void DrawTimeline(PlaybackController& playback, TimeLine& timeline);
+    void DrawTimeline(PlaybackController& playback);
 
 };
 

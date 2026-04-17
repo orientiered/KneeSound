@@ -6,7 +6,7 @@ namespace waves {
 
 
 std::ostream& operator<<(std::ostream& os, const Clip& clip) {
-    os << "Clip '" << clip.name << "'[" << &clip << "][id:" << clip.id << "] dump:\n"
+    os << "Clip '[" << &clip << "][id:" << clip.id << "] dump:\n"
        << "audio source " << clip.source << "\n"
        << "Source boundaries: [" << clip.source_start_frame << ", " << clip.source_end_frame << ")\n"
        << "Timeline start frame: " << clip.timeline_start_frame << "\n"
@@ -41,7 +41,7 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_uint64 start_frame,
 
     float gain = dbToGain(gain_db);
     PLOG_VERBOSE_IF(g_debug_flags.callback_logs) <<
-        "Rendering clip " << name << ": si " << out_start_i << " ei " << out_end_i << " srci " << src_i << 
+        "Rendering clip " << id << ": si " << out_start_i << " ei " << out_end_i << " srci " << src_i << 
         " gain " << gain;
 
     // TODO: clip pan 
@@ -82,60 +82,6 @@ std::optional<Clip> Clip::cut(ma_uint64 timeline_pos) {
     return new_clip;
 }
 
-/* ================= Equalizer ================== */
-
-void Equalizer::prepareTimeData(audio_sample_t *in, size_t ch_idx) {
-    // time_data: | previous block | data |
-    // 2*hop_size     hop_size      hop_size
-    audio_sample_t *prev_block = &previous_block_[ch_idx*hop_size_];
-    std::copy_n(prev_block, hop_size_, time_data.begin());
-
-    for (size_t idx = 0; idx < hop_size_; idx++) {
-        audio_sample_t sample = in[idx * channels_ + ch_idx];
-
-        // saving current block for next call
-        prev_block[idx] = sample;
-
-        // filling time_data for fft
-        time_data[hop_size_ + idx] = sample;
-    }
-
-}
-
-void Equalizer::applyOverlap(audio_sample_t *out, size_t ch_idx) {
-    
-    audio_sample_t *overlap = &overlap_add_[ch_idx*hop_size_];
-
-    for (size_t idx = 0; idx < hop_size_; idx++) {
-        // output[i] = overlapp_add[i] + time_data[i], i = 0...hop-1
-        out[idx * channels_ + ch_idx] = time_data[idx] + overlap[idx];
-    }
-
-    // overlapp_add[i] = time_data[i], i = hop...2*hop-1
-    std::copy_n(time_data.begin() + hop_size_, hop_size_, overlap);
-}
-
-void Equalizer::processBlock(audio_sample_t *inout) {
-
-    for (size_t ch_idx = 0; ch_idx < channels_; ch_idx++) {
-
-        prepareTimeData(inout, ch_idx);
- 
-        wfftr_.forward(time_data.data(), freq_data.data());
-
-        const size_t spectr_size = freq_response_.size();
-        for (size_t i = 0; i < spectr_size; i++) {
-            freq_data[i].i *= freq_response_[i];
-            freq_data[i].r *= freq_response_[i];
-        }
-
-        wfftr_.inverse(freq_data.data(), time_data.data());
-        wfftr_.normalize(time_data.data());
-
-        applyOverlap(inout, ch_idx);
-
-    }
-}
 
 /* ================= Track    =================== */
 
@@ -174,44 +120,21 @@ const std::vector<audio_sample_t> &Track::renderBlock(ma_uint64 start_frame) {
 
     }
 
-    equalizer.processBlock(buf.data());
+    if (enable_eq)
+        fft_pipeline.processBlock(buf.data(), equalizer);
 
     return rendering_buffer.writerSentReadyBuffer();
 }
 
-/* ================= Clipboard ================== */
-
-void TimeLine::copyToClipboard(ClipId_t id) {
-    PLOG_DEBUG << "Copying clip to clipboard " << id;
-
-    Clip *clip = getClipById(id);
-    if (!clip) return;
-
-    clipboard.data = clip->copy(); 
-}
-
-void TimeLine::cutToClipboard(ClipId_t id) {
-    PLOG_DEBUG << "Cutting clip to clipboard " << id;
-
-    Clip *clip = getClipById(id);
-    if (!clip) return;
-
-    // copying without changing id
-    clipboard.data = *clip; 
-
-    removeClipById(id); // removing clip 
-
-}
-
-std::optional<Clip> TimeLine::pasteFromClipboard() {
-    if (!clipboard.data) return std::nullopt;
-    // always copying
-    return clipboard.data->copy();
+size_t Track::getLatency() {
+    return fft_pipeline.getLatency() * enable_eq;
 }
 
 /* ================= Timeline =================== */
 
 const std::vector<audio_sample_t>& TimeLine::renderBlock(ma_uint64 start_frame) {
+    static ma_uint64 expected_frame = 0;
+
     // clearing buffer and allocating memory if needed
     std::vector<audio_sample_t> &buf = rendering_buffer.writerGetBuffer(render_block_size * INNER_CHANNELS);
 
@@ -219,9 +142,21 @@ const std::vector<audio_sample_t>& TimeLine::renderBlock(ma_uint64 start_frame) 
     //TODO: INVALIDATE CACHE IF START_FRAME != NEXT EXPECTED FRAME
     const size_t frame_count = render_block_size;
 
+    
 
     for (int track_idx = 0; track_idx < tracks.size(); track_idx++) {
-        const auto &track_buf = getTrack(track_idx).renderBlock(start_frame);
+        Track &track = getTrack(track_idx);
+        size_t latency = track.getLatency();
+
+        // Pre-fill if rendering non-sequantially
+        if (start_frame != expected_frame) {
+            for (int pre_fill_idx = 0; pre_fill_idx < latency; pre_fill_idx++) {
+                track.renderBlock(start_frame + latency * pre_fill_idx * render_block_size);
+            }
+        }
+
+        const auto &track_buf = track.renderBlock(start_frame + latency * render_block_size);
+
         for (int i = 0; i < frame_count * INNER_CHANNELS; i++) {
             buf[i] += track_buf[i] * gain;
             // PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "timeline_amp: "<< buf[i] <<
@@ -229,6 +164,7 @@ const std::vector<audio_sample_t>& TimeLine::renderBlock(ma_uint64 start_frame) 
         }   
     }
     
+    expected_frame = start_frame + frame_count;
 
     return rendering_buffer.writerSentReadyBuffer();
 }
@@ -263,6 +199,19 @@ void TimeLine::renderFrames(audio_sample_t *out, ma_uint64 start_frame, ma_uint6
 
 bool TimeLine::isValidClipId(ClipId_t id) {
     return getTrackAndClipIdx(id) ? true: false;
+}
+
+bool TimeLine::isValidTrackId(TrackId_t id) {
+    return getTrackById(id);
+}
+
+Track *TimeLine::getTrackById(TrackId_t id) {
+    auto it = std::find_if(tracks.begin(), tracks.end(), 
+                        [&id](const Track &track) { 
+                            return track.id == id;
+                        });
+    
+    return (it == tracks.end()) ? nullptr : &*it;
 }
 
 std::optional<ClipLoc> TimeLine::getTrackAndClipIdx(ClipId_t id) {

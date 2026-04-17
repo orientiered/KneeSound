@@ -87,7 +87,7 @@ void Editor::Draw() {
     // =================== MAIN WINDOW ===================
     if (ImGui::Begin("Audio editor", NULL, 0)) {
 
-        tl_view.DrawTimeline(playback_state, timeline);
+        tl_view.DrawTimeline(playback_state);
 
     }
     ImGui::End();

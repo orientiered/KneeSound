@@ -7,8 +7,46 @@
 
 namespace waves {
 
+// ========== SMALL UTILS ==================
+
+
+void TimelineView::zoomAtPixel(float pixel_x, float zoom_factor) {
+    float new_ppf = pixels_per_frame * zoom_factor;
+    if (new_ppf > MAX_PPF || new_ppf < MIN_PPF) {
+        return;
+    }
+
+    ma_int64 frame_under_cursor = pixelToFrame(pixel_x);
+    // Увеличиваем масштаб, сохраняя позицию под курсором
+    pixels_per_frame = new_ppf;
+    // Корректируем скролл, чтобы кадр под курсором остался на месте
+    // Scroll can't be less that zero
+    scroll_frame = std::max(0ll, frame_under_cursor - static_cast<ma_int64>(pixel_x / pixels_per_frame));
+}
+
+void TimelineView::scrollByFrames(int64_t delta_frames) {
+    PLOG_DEBUG << "Scrolling timeline by " << delta_frames << " frames";
+    if (delta_frames > 0) {
+        scroll_frame = std::min(scroll_frame + delta_frames, total_frames);
+    } else {
+        scroll_frame = (scroll_frame > static_cast<ma_uint64>(-delta_frames))
+            ? scroll_frame + delta_frames : 0;
+    }
+}
+
+std::pair<int, uint32_t> TimelineView::mousePosToTrackAndFrame() {
+    int track_idx = (mouse_pos.y - field_pos.y - grid_line_header) / track_height;
+
+    uint32_t start_frame = 0;
+    if ((mouse_pos.x - field_pos.x) >= 0) 
+        start_frame = pixelToFrame(mouse_pos.x - field_pos.x);
+
+    return std::make_pair(track_idx, start_frame);
+}
+
+// ====================== CLIP DRAWING ==================
 //! Assuming that clip_timeline frames is visible
-void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const waves::Clip& clip,
+void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
                       ImVec2 canvas_pos, float height, std::pair<ma_uint64, ma_uint64> timeline_clip_frames) {
     if (!clip.source || clip.source->pcmData.empty()) return;
 
@@ -29,16 +67,18 @@ void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const waves::Clip& cl
 
     ImVec2 prev_point = ImVec2(start_x, center_y);
 
+    ClipView style = getClipView(clip);
+
     //TODO: сделать так, чтобы вид вэйвформы не менялся при смещении
     for (ma_uint64 f = clip_start_frame; f < clip_end_frame; f += step) {
         float x = start_x + frameToPixelRel(f - clip_start_frame);
         // if (x > canvas_width) break;
 
         // Берём сэмпл (упрощённо: только первый канал, усреднение)
-        float sample = clip.source->getMonoSampleAmplitude(f);
+        float sample = clip.source->getMonoSampleAmplitude(f) * style.gain_waveform;
         float y = center_y - sample * (height / 2) * 0.9f; // 0.8 для отступа
 
-        draw_list->AddLine(prev_point, ImVec2(x, y), col_waveform, 2.f);
+        draw_list->AddLine(prev_point, ImVec2(x, y), style.col_waveform, 2.f);
         prev_point = ImVec2(x, y);
     }
 }
@@ -62,6 +102,8 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
     // clip is not visible, skipping
     if (clip_left >= clip_right) return;
 
+    ClipView &style = getClipView(clip);
+
     float x_start = track_start_pos.x + frameToPixel(clip_left);
     float x_end = track_start_pos.x + frameToPixel(clip_right);
     // TODO: draw two channels
@@ -74,12 +116,12 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
 
     ImGui::SetNextItemAllowOverlap();  // base of the clip may be overlapped by widgets
     ImGui::CursorGuard cg(start); // setting cursor and saving previous position
-    ID_GUARD(start.x+start.y, ImGui::InvisibleButton("##Clickable", end-start););  
+    ID_GUARD(&clip.id, ImGui::InvisibleButton("##Clickable", end-start););  
     auto [is_hovered, is_selected] = HandleClipBaseInteraction(clip);
 
     // Mimicking selectable
-    ImU32 color_base = is_selected ? col_clip_selected  
-                                   : col_clip_base;   
+    ImU32 color_base = is_selected ? style.col_clip_selected  
+                                   : style.col_clip_base;   
     ImU32 color_border = is_hovered ? IM_COL32(255, 255, 255, 255)
                                     : IM_COL32(255, 255, 255, 150);
 
@@ -123,7 +165,7 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
     }
 
     // clip name
-    std::string label = clip.name.empty() ? "Clip" : clip.name;
+    std::string label = style.name;
     ImVec2 label_size = ImGui::CalcTextSize(label.c_str());
 
     if (ImGui::BeginPopup(CLIP_POPUP)) {
@@ -134,14 +176,22 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
         if (ImGui::Button("FFT")) {
             analyzer.analyzeClip(clip);
         }
+        
+        static ImVec4 color;
+        color = ImGui::ColorConvertU32ToFloat4(style.col_clip_base);
 
+        if (ImGui::ColorEdit4("Base color", (float*)&color, ImGuiColorEditFlags_NoInputs)) {
+            style.col_clip_base = ImGui::ColorConvertFloat4ToU32(color);
+        }
+
+        ImGui::DragFloat("Waveform gain", &style.gain_waveform, 0.01, 0, 5);
         ImGui::EndPopup();
     }
 
     if (more_button) ImGui::PopID();
     
     if (header_left_cursor + label_size.x < header_right_cursor) {
-        draw_list->AddText(start + ImVec2{text_pad,text_pad}, col_clip_text, label.c_str());
+        draw_list->AddText(start + ImVec2{text_pad,text_pad}, style.col_clip_text, label.c_str());
         header_left_cursor += label_size.x;
     }
 
@@ -237,9 +287,9 @@ std::pair<bool, bool> TimelineView::HandleClipBaseInteraction(const Clip& clip) 
 
 /* =================== DRAGGING ======================================== */
 
-bool TimelineView::HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id, ImVec2 mouse_delta) {
+bool TimelineView::HandleHorizontalClipDrag(ClipId_t clip_id, ImVec2 mouse_delta) {
     // Конвертируем смещение в пикселях в кадры
-    Clip* clip = timeline.getClipById(clip_id);
+    Clip* clip = timeline_.getClipById(clip_id);
     if (!clip) return false;
 
     int64_t frame_delta = pixelToFrameRel(mouse_delta.x);
@@ -253,9 +303,7 @@ bool TimelineView::HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id
         } else if (frame_delta > 0) {
             clip->timeline_start_frame += frame_delta;
             // expanding timeline if necessary
-            if (clip->getTimelineEndFrame() > total_frames) {
-                total_frames = clip->getTimelineEndFrame();
-            }
+            expandTimelineForClip(*clip);
 
             return true;
         }
@@ -263,8 +311,8 @@ bool TimelineView::HandleHorizontalClipDrag(TimeLine& timeline, ClipId_t clip_id
     return false;
 }
 
-bool TimelineView::HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id) {
-    auto  current_track_idx = timeline.getTrackIdx(clip_id);
+bool TimelineView::HandleVerticalClipDrag(ClipId_t clip_id) {
+    auto  current_track_idx = timeline_.getTrackIdx(clip_id);
     if (!current_track_idx) return false;
 
 
@@ -275,16 +323,249 @@ bool TimelineView::HandleVerticalClipDrag(TimeLine& timeline, ClipId_t clip_id) 
     PLOG_DEBUG << "Moving clip " << clip_id << " from track " << *current_track_idx 
                << " to track " << expected_track_idx;
 
-    timeline.moveClipToTrack(clip_id, expected_track_idx);
+    timeline_.moveClipToTrack(clip_id, expected_track_idx);
     return true;
 }
 
 
 /* ======================== DRAWING ======================================= */
 
+void EqualizerSettings::DrawLowpass() {
+    ImGui::IdGuard ig(&lowpass);
+    bool modified = setPreset(LOWPASS);
+    modified |= ImGui::DragFloat("Cutoff", &lowpass.cutoff, 3, MIN_FREQ, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
+    modified |= ImGui::DragFloat("Attenuation", &lowpass.attenuation, 1, 0, 100, "%.2f");
+    if (modified)
+        calculateLowpass();
+}
+
+void EqualizerSettings::DrawHighpass() {
+    ImGui::IdGuard ig(&highpass);
+    bool modified = setPreset(HIGHPASS);
+    modified |= ImGui::DragFloat("Cutoff", &highpass.cutoff, 3, MIN_FREQ, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
+    modified |= ImGui::DragFloat("Attenuation", &highpass.attenuation, 1, 0, 100, "%.2f");
+    if (modified)   
+        calculateHighpass();
+}
+
+void EqualizerSettings::DrawBandpass() {
+    bool modified = setPreset(BANDPASS);
+    ImGui::IdGuard ig(&bandpass);
+    modified |= ImGui::DragFloat("Cutoff left", &bandpass.left_cutoff, 3, MIN_FREQ, bandpass.right_cutoff, "%.2f", ImGuiSliderFlags_Logarithmic);
+    modified |= ImGui::DragFloat("Cutoff right", &bandpass.right_cutoff, 3, bandpass.left_cutoff, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
+    modified |= ImGui::DragFloat("Attenuation left", &bandpass.left_attenuation, 1, 0, 100, "%.2f");
+    modified |= ImGui::DragFloat("Attenuation right", &bandpass.right_attenuation, 1, 0, 100, "%.2f");
+
+    if (modified)
+        calculateBandpass();
+}
+
+void EqualizerSettings::DrawRejector() {
+    bool modified = setPreset(REJECTOR);
+    ImGui::IdGuard ig(&rejector);
+    modified |= ImGui::DragFloat("Cutoff left", &rejector.left_cutoff, 3, MIN_FREQ, rejector.right_cutoff, "%.2f", ImGuiSliderFlags_Logarithmic);
+    modified |= ImGui::DragFloat("Cutoff right", &rejector.right_cutoff, 3, rejector.left_cutoff, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
+    modified |= ImGui::DragFloat("Attenuation left", &rejector.left_attenuation, 1, 0, 100, "%.2f");
+    modified |= ImGui::DragFloat("Attenuation right", &rejector.right_attenuation, 1, 0, 100, "%.2f");
+    // modified |= ImGui::DragFloat("Attenuation right", &rejector.gain_db, 1, -100, 0, "%.2f");
+
+    if (modified) 
+        calculateRejector();
+}
+
+void EqualizerSettings::DrawKBand() {
+    bool modified = setPreset(KBAND);
+    ImGui::IdGuard ig(&kband);
+
+    if (kband.bands.size() != kband.band_count || ImGui::DragInt("Number of bounds", &kband.band_count, 1, 3, 10)) {
+        kband.bands.resize(kband.band_count);
+        for (int i = 0; i < kband.band_count; i++) {
+            kband.bands[i].freq_log = static_cast<float>(i) / (kband.band_count - 1);
+        }
+        modified = true;
+    }
+
+    for (int i = 0; i < kband.band_count; i++) {
+        if (i > 0) ImGui::SameLine();
+
+        ImGui::IdGuard ig(i);
+
+        float freq = logFreqToNormal(kband.bands[i].freq_log);
+
+        modified |= ImGui::VSliderFloat("##BandSlider", ImVec2(40, 200), &kband.bands[i].gain_db, -20, +20, "");
+
+        if (ImGui::IsItemActive() || ImGui::IsItemHovered()) {
+            if (freq < 1000)
+                ImGui::SetTooltip("%.0f Hz: %.2f db", freq, kband.bands[i].gain_db);
+            else {
+                ImGui::SetTooltip("%.1f Kz: %.2f db", freq / 1000, kband.bands[i].gain_db);
+            }
+        }
+
+    }
+
+    if (modified)
+        calculateKBand();
+
+}
+
+/*
+ Linear attenuation (db / decade) in double logarithimic scale 
+*/
+static float interpolateAttenuation(float atten, float freq, float cutoff) {
+    return std::pow(freq / cutoff, -atten / 20.0f);
+}
+
+void EqualizerSettings::setResponseSize(size_t size) {
+    if (frequency_response.size() != size)
+        frequency_response.resize(size, 1.0f);
+}
+
+
+std::vector<float> &EqualizerSettings::calculateLowpass() {
+    size_t size = frequency_response.size();
+    for (int i = 0; i < size; i++) {
+        float freq = static_cast<float>(i) * MAX_FREQ / size;
+        if (freq < lowpass.cutoff)
+            frequency_response[i] = 1;
+        else {
+            frequency_response[i] = interpolateAttenuation(lowpass.attenuation, freq, lowpass.cutoff);
+        }
+    }
+    return frequency_response;
+}
+
+std::vector<float> &EqualizerSettings::calculateHighpass() {
+    size_t size = frequency_response.size();
+    for (int i = 0; i < size; i++) {
+        float freq = static_cast<float>(i) * MAX_FREQ / size;
+        if (freq > highpass.cutoff)
+            frequency_response[i] = 1;
+        else {
+            frequency_response[i] = interpolateAttenuation(-highpass.attenuation, freq, highpass.cutoff);
+        }
+    }
+    return frequency_response;
+}
+
+std::vector<float> &EqualizerSettings::calculateBandpass() {
+    size_t size = frequency_response.size();
+    for (int i = 0; i < size; i++) {
+        float freq = static_cast<float>(i) * MAX_FREQ / size;
+        if (freq < bandpass.left_cutoff) {
+            frequency_response[i] = 
+                interpolateAttenuation(-bandpass.left_attenuation, freq, bandpass.left_cutoff);
+        } else 
+        if (freq > bandpass.right_cutoff) {
+            frequency_response[i] = 
+                interpolateAttenuation(bandpass.right_attenuation, freq, bandpass.right_cutoff);
+        } else {
+            frequency_response[i] = 1;
+        }
+    }
+    return frequency_response;
+}
+
+std::vector<float> &EqualizerSettings::calculateRejector() {
+
+    size_t size = frequency_response.size();
+    for (int i = 0; i < size; i++) {
+        float freq = static_cast<float>(i) * MAX_FREQ / size;
+        if (freq < rejector.left_cutoff || freq > rejector.right_cutoff) {
+            frequency_response[i] = 1;
+        } else {
+            frequency_response[i] = std::min(
+                interpolateAttenuation(rejector.left_attenuation, freq, rejector.left_cutoff),
+                interpolateAttenuation(-rejector.right_attenuation, freq, rejector.right_cutoff));
+                
+        }
+    }
+    return frequency_response;
+}
+
+std::vector<float> &EqualizerSettings::calculateKBand() {
+
+    int left_band_idx = 0;
+    float left_band_lfreq = kband.bands[left_band_idx].freq_log;
+    float right_band_lfreq = kband.bands[left_band_idx + 1].freq_log;
+
+    float gain_db_left  = kband.bands[left_band_idx].gain_db;
+    float gain_db_right = kband.bands[left_band_idx + 1].gain_db;
+
+    size_t size = frequency_response.size();
+    for (int i = 0; i < size; i++) {
+        float freq = std::max(MIN_FREQ, static_cast<float>(i) * MAX_FREQ / size);
+        float log_freq = freqToLog(freq);
+
+        if (log_freq > right_band_lfreq) {
+            left_band_idx++;
+            
+            left_band_lfreq = kband.bands[left_band_idx].freq_log;
+            right_band_lfreq = kband.bands[left_band_idx + 1].freq_log;
+
+            gain_db_left  = kband.bands[left_band_idx].gain_db;
+            gain_db_right = kband.bands[left_band_idx + 1].gain_db;
+        }
+
+        float k = (gain_db_right - gain_db_left) / (right_band_lfreq - left_band_lfreq);
+        float gain_db = gain_db_left + k * (log_freq - left_band_lfreq);
+        frequency_response[i] = dbToGain(gain_db);
+    }
+    return frequency_response;
+
+}
+
+void TimelineView::DrawEqSettings(bool *enable, Equalizer &eq, EqualizerSettings &settings) {
+    ImGui::Checkbox("On", enable);
+
+    settings.setResponseSize(eq.getSize());
+
+    const char * const EQ_TABS = "EQ_TAB_BAR";
+     if (ImGui::BeginTabBar(EQ_TABS)) {
+        if (ImGui::BeginTabItem("Lowpass")) {
+            settings.DrawLowpass();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Highpass")) {
+            settings.DrawHighpass();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Bandpass")) {
+            settings.DrawBandpass();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Rejector")) {
+            settings.DrawRejector();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("k-band")) {
+            settings.DrawKBand();
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
+    }
+
+    ImGui::Text("Response graph");
+    float max_value = 
+        std::max(1.0f, *std::max_element(settings.frequency_response.begin(), settings.frequency_response.end()));
+    ImGui::PlotLines("##Response", settings.frequency_response.data(), settings.frequency_response.size(),
+        0, nullptr, 0, max_value, ImVec2(0, ImGui::GetFrameHeight() * 3));
+    if (ImGui::Button("Apply")) {
+        settings.saveAppliedPreset();
+        
+        eq.setFreqResponse(settings.frequency_response);
+    }
+    
+
+}
+
+
 void TimelineView::DrawTrack(Track& track, bool parity) {
 
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, parity ? col_track_bg_even : col_track_bg_odd);
+    TrackView &style = getTrackView(track);
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, parity ? style.col_track_bg_even : style.col_track_bg_odd);
 
     // const float mult = 0.99;
     ImGui::PushID(&track);
@@ -299,15 +580,32 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
     ImGui::BeginChild("Track info", ImVec2{track_info_width, track_height}, 0);
 
     // track name
-    ID_GUARD(&track.name, ImGui::InputText("", &track.name); );
+    ID_GUARD(&track.id, ImGui::InputText("", &style.name); );
+    
+    const char * const EQ_POPUP = "EQ_POPUP";
+    ID_GUARD(&track.enable_eq,
+
+        if (ImGui::Button("Eq"))
+            ImGui::OpenPopup(EQ_POPUP);
+
+        if (ImGui::BeginPopup(EQ_POPUP)) {
+            // TODO: use getter instead of direct access to map of equalizer settings
+            DrawEqSettings(&track.enable_eq, track.equalizer, equalizer_settings[track.id]);
+            ImGui::EndPopup();
+        }
+    );
+    
+    ImGui::SameLine();
     // mute
     ID_GUARD(&track.mute, ImGui::Checkbox("Mute", &track.mute););
+    
 
     // gain
     
     ID_GUARD(&track.gain_db,
         ImGui::DragFloat("Gain", &track.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
     );
+
 
     ID_GUARD(&track.rendering_buffer, 
         if (ImGui::Button("FFT Spectr")) {
@@ -337,10 +635,10 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
 
 }
 
-void TimelineView::DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline, 
+void TimelineView::DrawPlayHead(ImDrawList *draw_list, 
                                 ImVec2 canvas_pos, ImVec2 size) {
 
-    ma_uint64 playhead_frame = timeline.playhead_frame.load();
+    ma_uint64 playhead_frame = timeline_.playhead_frame.load();
     if (playhead_frame >= scroll_frame) {
         float playhead_x = canvas_pos.x + frameToPixel(playhead_frame);
         draw_list->AddLine(ImVec2(playhead_x, canvas_pos.y),
@@ -350,10 +648,81 @@ void TimelineView::DrawPlayHead(ImDrawList *draw_list, TimeLine& timeline,
 }
 
 
+/* ================= General work with timeline ============ */
+
+void TimelineView::removeClipFromTimeline(ClipId_t id) {
+    PLOG_DEBUG << "Deleting clip " << id;
+    timeline_.removeClipById(id);
+    clip_view.erase(id);
+
+    // unselecting deleted clip
+    if (interaction.selected_clip_id == id)
+        interaction.selected_clip_id = CLIP_NONE;
+}
+
+ClipId_t TimelineView::addClipToTimeline(const Clip& clip, int track_idx, std::optional<ClipView> style) {
+    PLOG_DEBUG << "Adding clip " << clip.id << "to track " << track_idx; 
+    ClipId_t id = timeline_.addClip(clip, track_idx);
+    if (id == CLIP_NONE) return id;
+
+    if (!style) {
+        clip_view[id] = clip_view_default;
+        clip_view[id].name = clip.source->name;
+    } else {
+        clip_view[id] = *style;
+    }
+    
+    expandTimelineForClip(id);
+
+    return id;
+}
+
+void TimelineView::expandTimelineForClip(const Clip& clip) {
+    // expanding timeline if necessary
+    total_frames = std::max(total_frames, clip.getTimelineEndFrame());
+}
+
+void TimelineView::expandTimelineForClip(ClipId_t id) {
+    Clip *clip = timeline_.getClipById(id);
+    if (clip) expandTimelineForClip(*clip);
+}
+
+
+/* ================= Clipboard ================== */
+
+void TimelineView::copyToClipboard(ClipId_t id) {
+    PLOG_DEBUG << "Copying clip to clipboard " << id;
+
+    Clip *clip = timeline_.getClipById(id);
+    if (!clip) return;
+
+    clipboard.data = clip->copy(); 
+    clipboard.style = getClipView(id);
+}
+
+void TimelineView::cutToClipboard(ClipId_t id) {
+    PLOG_DEBUG << "Cutting clip to clipboard " << id;
+
+    Clip *clip = timeline_.getClipById(id);
+    if (!clip) return;
+
+    // copying without changing id
+    clipboard.data = *clip; 
+    clipboard.style = getClipView(id);
+    clip_view.erase(id);
+
+    removeClipFromTimeline(id);
+}
+
+std::optional<ClipboardPayload> TimelineView::pasteFromClipboard() {
+    if (!clipboard.data) return std::nullopt;
+    // always copying
+    return ClipboardPayload{clipboard.data->copy(), *clipboard.style};
+}
 
 /* ========================== Interaction ================================ */
 
-void TimelineView::HandleInteractions(PlaybackController& playback, TimeLine& timeline) {
+void TimelineView::HandleInteractions(PlaybackController& playback) {
 
     // 0 ~~ Mouse on empty space ~~
     if (hovered_on_bg) {
@@ -380,7 +749,7 @@ void TimelineView::HandleInteractions(PlaybackController& playback, TimeLine& ti
 
     // 2 Playhead moving handling
     if (clicked_on_bg) {
-        timeline.playhead_frame.store(pixelToFrame(mouse_pos.x - field_pos.x));
+        timeline_.playhead_frame.store(pixelToFrame(mouse_pos.x - field_pos.x));
     }
 
     // 3 Dragging handling
@@ -389,11 +758,11 @@ void TimelineView::HandleInteractions(PlaybackController& playback, TimeLine& ti
         ImGui::IsMouseDragging(ImGuiMouseButton_Left)) 
     {
         ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
-        if (HandleHorizontalClipDrag(timeline, interaction.selected_clip_id, delta)) {
+        if (HandleHorizontalClipDrag(interaction.selected_clip_id, delta)) {
             ImGui::ResetMouseDragDelta(ImGuiMouseButton_Left);
         }
 
-        HandleVerticalClipDrag(timeline, interaction.selected_clip_id);
+        HandleVerticalClipDrag(interaction.selected_clip_id);
 
     } 
 
@@ -401,9 +770,7 @@ void TimelineView::HandleInteractions(PlaybackController& playback, TimeLine& ti
     if (interaction.selected_clip_id != CLIP_NONE &&
         ImGui::IsKeyPressed(ImGuiKey_Delete)) 
     {
-        PLOG_DEBUG << "Deleting clip " << interaction.selected_clip_id;
-        timeline.removeClipById(interaction.selected_clip_id);
-        interaction.selected_clip_id = CLIP_NONE;
+        removeClipFromTimeline(interaction.selected_clip_id);
     }
 
     // 5 Clip cutting
@@ -415,15 +782,16 @@ void TimelineView::HandleInteractions(PlaybackController& playback, TimeLine& ti
         !keyCtrl_pressed && ImGui::IsKeyPressed(ImGuiKey_X)) {
         PLOG_DEBUG << "Cutting clip " << interaction.selected_clip_id;
 
-        Clip *selected = timeline.getClipById(interaction.selected_clip_id);
-        auto clip_loc = timeline.getTrackAndClipIdx(interaction.selected_clip_id);
+        Clip *selected = timeline_.getClipById(interaction.selected_clip_id);
+        auto clip_loc = timeline_.getTrackAndClipIdx(interaction.selected_clip_id);
 
         if (!selected) {
             PLOG_ERROR << "SELECTED CLIP " << interaction.selected_clip_id << " that is not present on timeline";
         }
 
-        std::optional<Clip> new_clip = selected->cut(timeline.playhead_frame);
-        if (new_clip) timeline.addClip(*new_clip, clip_loc->track_idx);
+        std::optional<Clip> new_clip = selected->cut(timeline_.playhead_frame);
+        if (new_clip) 
+            addClipToTimeline(*new_clip, clip_loc->track_idx, getClipView(*selected));
     }
 
     // 6 Clip copy-cut-pasting
@@ -432,15 +800,14 @@ void TimelineView::HandleInteractions(PlaybackController& playback, TimeLine& ti
     if (interaction.selected_clip_id != CLIP_NONE &&
         keyCtrl_pressed && ImGui::IsKeyPressed(ImGuiKey_C)) {
         PLOG_DEBUG << "Copying clip " << interaction.selected_clip_id;
-        timeline.copyToClipboard(interaction.selected_clip_id);
+        copyToClipboard(interaction.selected_clip_id);
     }
 
     // Ctrl + X
     if (interaction.selected_clip_id != CLIP_NONE &&
         keyCtrl_pressed && ImGui::IsKeyPressed(ImGuiKey_X)) {
         PLOG_DEBUG << "Copying clip " << interaction.selected_clip_id;
-        timeline.cutToClipboard(interaction.selected_clip_id);
-        interaction.selected_clip_id = CLIP_NONE;
+        cutToClipboard(interaction.selected_clip_id);
     }
 
     // Ctrl + V
@@ -450,11 +817,12 @@ void TimelineView::HandleInteractions(PlaybackController& playback, TimeLine& ti
 
         auto loc = mousePosToTrackAndFrame();
 
-        std::optional<Clip> clip_opt = timeline.pasteFromClipboard();
-        if (!clip_opt) return;
-
-        clip_opt->timeline_start_frame = loc.second;
-        timeline.addClip(*clip_opt, loc.first); 
+        std::optional<ClipboardPayload> clip_opt = pasteFromClipboard();
+        if (clip_opt) {
+            auto [clip, style] = *clip_opt;
+            clip.timeline_start_frame = loc.second;
+            addClipToTimeline(clip, loc.first, style);
+        }
     }
 
     // 7 Play/pause
@@ -463,7 +831,6 @@ void TimelineView::HandleInteractions(PlaybackController& playback, TimeLine& ti
     }
 
     // 8 ===  Handling scroll and zoom ===
-
 
     if (hovered && mouseWheel_delta != 0) {
         if (keyCtrl_pressed) {
@@ -482,7 +849,7 @@ void TimelineView::HandleInteractions(PlaybackController& playback, TimeLine& ti
 
 }
 
-void TimelineView::DrawTimeline(PlaybackController& playback, TimeLine& timeline) {
+void TimelineView::DrawTimeline(PlaybackController& playback) {
 
     // Timeline over all available space
     ImGui::BeginChild("Timeline_canvas", ImVec2(0, 0), ImGuiChildFlags_Borders, 
@@ -519,8 +886,8 @@ void TimelineView::DrawTimeline(PlaybackController& playback, TimeLine& timeline
 
     // === 1. Drawing tracks
     ImGui::SetCursorScreenPos(canvas_pos + ImVec2{0,grid_line_header});
-    for (int idx = 0; idx < timeline.getTrackCount(); idx++) {
-        DrawTrack(timeline.getTrack(idx), idx%2);
+    for (int idx = 0; idx < timeline_.getTrackCount(); idx++) {
+        DrawTrack(timeline_.getTrack(idx), idx%2);
 
     }
 
@@ -530,11 +897,11 @@ void TimelineView::DrawTimeline(PlaybackController& playback, TimeLine& timeline
     
 
     // === 3. Курсор воспроизведения ===
-    DrawPlayHead(draw_list, timeline, field_pos, field_size);
+    DrawPlayHead(draw_list, field_pos, field_size);
 
     // === 4. Interaction ========================
 
-    HandleInteractions(playback, timeline);
+    HandleInteractions(playback);
 
 
     ImGui::EndChild();
@@ -548,16 +915,12 @@ void TimelineView::DrawTimeline(PlaybackController& playback, TimeLine& timeline
             // Обработка полученных данных
             auto loc = mousePosToTrackAndFrame();
 
-            ClipId_t clip_id = timeline.addClip(Clip(data, loc.second), loc.first);
+            ClipId_t clip_id = 
+                addClipToTimeline(Clip(data, loc.second), loc.first);
 
-            // expanding timeline if necessary
-            Clip *clip = timeline.getClipById(clip_id);
-            if (clip->getTimelineEndFrame() > total_frames) {
-                total_frames = clip->getTimelineEndFrame();
-            }
         }
         ImGui::EndDragDropTarget();
     }
 }
 
-}
+} // namespace waves

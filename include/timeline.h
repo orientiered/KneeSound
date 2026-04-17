@@ -5,11 +5,11 @@
 #include <shared_mutex>
 #include "common.h"
 
-#include "fft_utils.h"
-#include "kiss_fftr.h"
+
 #include "miniaudio.h"
 
 #include "buffer_utils.h"
+#include "audio_effects.h"
 
 namespace waves {
 
@@ -59,10 +59,13 @@ const ClipId_t CLIP_NONE = -1;
 struct Clip {
 private:
     static ClipId_t unique_id_;
+    ClipId_t setUniqueId() {
+        id = unique_id_++;
+        return id;
+    }
 public:
     // ==== Data ===
     ClipId_t id; // used for interaction handling
-    std::string name; // UI name
     AudioSourcePtr source;
 
     // === Boundaries  ===
@@ -71,22 +74,16 @@ public:
     // [source_start_frame, source_end_frame)
     ma_uint64 timeline_start_frame;
 
-    // === АУДИО-ПАРАМЕТРЫ ===
+    // === General audio params ===
     float gain_db = 0;        // громкость в децибелах (или линейный множитель)
     float pan = 0;            // панорама: -1.0 (лево) ... 0.0 (центр) ... 1.0 (право)
     bool muted = false;           // быстрый мьют без удаления
 
-    // === ВИЗУАЛИЗАЦИЯ (для UI) ===
-    uint32_t color;       // цвет клипа в таймлайне
+    // === Fade in/out ===
     std::optional<std::pair<float, float>> fade_in;  // {duration_sec, curve}
     std::optional<std::pair<float, float>> fade_out;
 
-    // === ОБРАБОТКА (эффекты и кэширование) ===
-    // std::vector<std::unique_ptr<AudioEffect>> effects; // цепочка эффектов
-    // std::vector<float> pre_rendered_buffer; // кэш после обработки
-    // bool pre_render_valid; // флаг валидности кэша
-
-    // === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ===
+    // === Helpers ===
     ma_uint64 getDurationFrames() const {
         return source_end_frame - source_start_frame;
     }
@@ -115,70 +112,34 @@ public:
 
     Clip copy() {
         Clip new_clip = *this;
-        new_clip.id = unique_id_++;
+        new_clip.setUniqueId();
         return new_clip;
     }
 
-    Clip(AudioSourcePtr src, ma_uint64 timeline_pos, std::optional<std::string> clip_name = std::nullopt):
-        source(src), name(clip_name ? *clip_name : src->name), timeline_start_frame(timeline_pos),
+    Clip(AudioSourcePtr src, ma_uint64 timeline_pos):
+        source(src), timeline_start_frame(timeline_pos),
         source_start_frame(0), source_end_frame(src->pcmData.size() / INNER_CHANNELS)
     {
-        id = unique_id_++; // setting unique id on construction
-
+        setUniqueId();
     }
 
 };
 
 inline ClipId_t Clip::unique_id_ = 0;
 
-
-/* ========================== EQUALIZER ======================== */
-class Equalizer {
-private:
-    WindowedKissFFTR wfftr_;
-
-    size_t hop_size_;
-    size_t channels_;
-
-    std::vector<float> freq_response_;
-    // overlapp and previous are stored sequentially, not interleaved
-    std::vector<audio_sample_t> overlap_add_;
-    std::vector<audio_sample_t> previous_block_;
-
-    std::vector<audio_sample_t> time_data;
-    std::vector<kiss_fft_cpx>   freq_data; 
-
-public:
-    Equalizer(size_t block_size, size_t channels):
-        wfftr_(2*block_size, WindowFunction::Type::Hann, true, true),
-        hop_size_(block_size), channels_(channels),
-        freq_response_(block_size + 1, 1.0f),
-        overlap_add_(hop_size_ * channels_, 0.0f),
-        previous_block_(hop_size_ * channels_, 0.0f),
-        time_data(2*block_size, 0.0f),
-        freq_data(block_size + 1) {}
-
-    void reset() {
-        std::fill(overlap_add_.begin(), overlap_add_.end(), 0.0f);
-        std::fill(previous_block_.begin(), previous_block_.end(), 0.0f);
-    }
-
-    void processBlock(audio_sample_t *inout);
-    void setFreqResponse(const std::vector<float> response) {
-        if (response.size() != freq_response_.size())
-            throw std::invalid_argument("Frequency response size must be block_size + 1");
-
-        freq_response_ = response;
-    }
-private:
-    void prepareTimeData(audio_sample_t *in, size_t ch_idx);
-    void applyOverlap(audio_sample_t *out, size_t ch_idx);
-};
-
 /* ========================== TRACK ============================ */
+using TrackId_t = int64_t;
+const TrackId_t TRACK_NONE = -1;
+
 class Track {
+private:
+    static TrackId_t unique_id_;
+    TrackId_t setUniqueId() {
+        id = unique_id_++;
+        return id;
+    }
 public:
-    std::string name;
+    TrackId_t id;
     std::vector<Clip> clips;
 
     ReadableStreamingBuffer rendering_buffer;
@@ -189,39 +150,43 @@ public:
     float pan = 0;
     bool  mute = false;
 
+    bool enable_eq = false;
+    FreqDomainEffect fft_pipeline;
     Equalizer equalizer;
     // ================ Methods ================================
 
     const std::vector<audio_sample_t> &renderBlock(ma_uint64 start_frame);
+    size_t getLatency();
 
     void addClip(Clip&& clip) {
-        PLOG_INFO << "Add clip '" << clip.name << "' [" << &clip << "] to track '" << name << "'";
+        PLOG_INFO << "Add clip '" << clip.id << "' [" << &clip << "] to track '" << id << "'";
         PLOG_INFO << "Clip len " << clip.getDurationFrames() << " frames";
         clips.push_back(std::move(clip));
     }
 
     void addClip(const Clip& clip) {
-        PLOG_INFO << "Add clip '" << clip.name << "' [" << &clip << "] to track '" << name << "'";
+        PLOG_INFO << "Add clip '" << clip.id << "' [" << &clip << "] to track '" << id << "'";
         PLOG_INFO << "Clip len " << clip.getDurationFrames() << " frames";
         clips.push_back(clip);
     }
 
     Track(std::mutex& mtx_) : 
-        name("None"), 
         rendering_buffer(mtx_, START_RENDER_BUFFER_SIZE*INNER_CHANNELS),
-        equalizer(render_block_size, INNER_CHANNELS) {}
+        fft_pipeline(render_block_size, INNER_CHANNELS),
+        equalizer(render_block_size) 
+    {
+        setUniqueId();
+    }
 };
+
+inline TrackId_t Track::unique_id_ = 0;
 
 struct ClipLoc {
     size_t track_idx;
     size_t clip_idx;
 };
 
-struct TimelineClipboard {
-    std::optional<Clip> data;
 
-
-};
 
 /* MUTEX USAGE POLICY:
 
@@ -241,8 +206,6 @@ public:
 
     std::mutex render_buffer_mtx;
     ReadableStreamingBuffer rendering_buffer;
-
-    TimelineClipboard clipboard; 
 
     std::mutex &mtx; // shared mtx
 
@@ -266,11 +229,14 @@ public:
         return *elem;
     }
 
+    Track *getTrackById(TrackId_t id);
+
     const std::vector<audio_sample_t>& renderBlock(ma_uint64 start_frame);
     
     void renderFrames(audio_sample_t *out, ma_uint64 start_frame, ma_uint64 frame_count);
 
     bool isValidClipId(ClipId_t id);
+    bool isValidTrackId(TrackId_t id);
 
     std::optional<ClipLoc> getTrackAndClipIdx(ClipId_t id);
     Clip *getClipById(ClipId_t id);
@@ -284,12 +250,6 @@ public:
 
     void addTrack();
     ClipId_t addClip(const Clip& clip, int track_idx);
-
-    // clipboard
-    void copyToClipboard(ClipId_t id);
-    void cutToClipboard(ClipId_t id);  // uses mtx
-
-    std::optional<Clip> pasteFromClipboard();
 
 };
 

@@ -23,7 +23,7 @@ int main() {
 
     PLOG_INFO << "Starting audio editor";
 
-    sf::RenderWindow window(sf::VideoMode::getFullscreenModes()[0], "Audio editor");
+    sf::RenderWindow window(sf::VideoMode::getFullscreenModes()[0], "KneeSound");
     window.setFramerateLimit(60);
 
     /* ============== Setting up ImGUI ==================== */
