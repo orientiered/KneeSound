@@ -16,7 +16,7 @@ std::ostream& operator<<(std::ostream& os, const Clip& clip) {
 
 // Renders frames to out array, ADDITIVELY 
 // Doesn't write zeros
-void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_uint64 start_frame, ma_uint64 frame_count) {
+void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, ma_uint64 frame_count) {
 
     if (muted) return;
 
@@ -66,7 +66,29 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_uint64 start_frame,
     
 }
 
-std::optional<Clip> Clip::cut(ma_uint64 timeline_pos) {
+bool Clip::trim(bool right, ma_int64 timeline_pos) {
+    if (!right) {
+        // trim from left
+        if (timeline_pos < getTimelineEndFrame() &&
+            timeline_pos > (timeline_start_frame - source_start_frame) ) {
+            source_start_frame += timeline_pos - timeline_start_frame;
+            timeline_start_frame = timeline_pos;
+            return true;
+        }
+
+    } else {
+        //trim from right
+        if (timeline_pos > timeline_start_frame && 
+            timeline_pos <= (timeline_start_frame + getSourceDuration() - source_start_frame)) {
+            source_end_frame = source_start_frame + timeline_pos - timeline_start_frame;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+std::optional<Clip> Clip::cut(ma_int64 timeline_pos) {
     PLOG_DEBUG << "Cutting clip " << id << " on pos " << timeline_pos;
     std::optional<ma_uint64> source_pos = timelineToSourceFrame(timeline_pos);
     // if cut position is not in clip, do not cut

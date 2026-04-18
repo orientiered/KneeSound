@@ -222,7 +222,8 @@ void Exporter_View::Draw(Editor& editor) {
 
     export_range = exporter.getExportRange();
 
-    int32_t max_frame = editor.tl_view.getTimelineLen();
+    int32_t max_frame = INNER_SAMPLE_RATE * 60 * 60; // 1 hour limit for now
+    // int32_t max_frame = editor.tl_view.getTimelineLen();
 
     if (ImGui::SliderInt2("##export_range_slider", reinterpret_cast<int32_t*>(&export_range), 
                     0, max_frame, "%u")) {

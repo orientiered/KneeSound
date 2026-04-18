@@ -49,6 +49,10 @@ struct AudioSource {
         avg_amp /= INNER_CHANNELS;
         return avg_amp;
     }
+
+    size_t getDuration() const {
+        return pcmData.size() / INNER_CHANNELS;
+    }   
 };
 
 using AudioSourcePtr = std::shared_ptr<AudioSource>;
@@ -69,10 +73,10 @@ public:
     AudioSourcePtr source;
 
     // === Boundaries  ===
-    ma_uint64 source_start_frame;   // inclusive
-    ma_uint64 source_end_frame;     // exclusive
+    ma_int64 source_start_frame;   // inclusive
+    ma_int64 source_end_frame;     // exclusive
     // [source_start_frame, source_end_frame)
-    ma_uint64 timeline_start_frame;
+    ma_int64 timeline_start_frame;
 
     // === General audio params ===
     float gain_db = 0;        // громкость в децибелах (или линейный множитель)
@@ -84,16 +88,23 @@ public:
     std::optional<std::pair<float, float>> fade_out;
 
     // === Helpers ===
-    ma_uint64 getDurationFrames() const {
+    ma_uint64 getSourceDuration() const {
+        if (source && source->valid)
+            return source->getDuration();
+
+        return 0;
+    }
+
+    ma_int64 getDurationFrames() const {
         return source_end_frame - source_start_frame;
     }
 
-    ma_uint64 getTimelineEndFrame() const {
+    ma_int64 getTimelineEndFrame() const {
         return timeline_start_frame + getDurationFrames();
     }
 
     // Конвертация: время на таймлайне -> кадр в источнике
-    std::optional<ma_uint64> timelineToSourceFrame(ma_uint64 timeline_frame) const {
+    std::optional<ma_uint64> timelineToSourceFrame(ma_int64 timeline_frame) const {
         if (timeline_frame < timeline_start_frame ||
             timeline_frame >= getTimelineEndFrame()) {
             return std::nullopt; // кадр вне границ клипа
@@ -102,11 +113,15 @@ public:
         return source_start_frame + clip_local_frame;
     }
 
-    // Renders frames to out array, ADDITIVELY 
-    // Doesn't write zeros
-    void renderFrames(std::vector<audio_sample_t> &out, ma_uint64 start_frame, ma_uint64 frame_count);
+    /// Renders frames to out array, ADDITIVELY 
+    /// Doesn't write zeros
+    void renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, ma_uint64 frame_count);
 
-    std::optional<Clip> cut(ma_uint64 timeline_pos);
+    /// Trim clip from left (false) or right(true) to position timeline_pos
+    /// @return Trim made any changes
+    bool trim(bool right, ma_int64 timeline_pos);
+    /// Cut clip on timeline_pos. On success returns new created clip
+    std::optional<Clip> cut(ma_int64 timeline_pos);
 
     friend std::ostream& operator<<(std::ostream& os, const Clip& clip);
 
@@ -116,7 +131,7 @@ public:
         return new_clip;
     }
 
-    Clip(AudioSourcePtr src, ma_uint64 timeline_pos):
+    Clip(AudioSourcePtr src, ma_int64 timeline_pos):
         source(src), timeline_start_frame(timeline_pos),
         source_start_frame(0), source_end_frame(src->pcmData.size() / INNER_CHANNELS)
     {

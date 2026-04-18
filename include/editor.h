@@ -49,7 +49,7 @@ public:
         media_pool(), 
         timeline(mtx),
         playback_state(mtx, media_pool, timeline),
-        tl_view(timeline, static_cast<ma_uint64>(1e6), 1e-2),
+        tl_view(timeline, 1e-2),
         player(ma_format_f32, INNER_CHANNELS, INNER_SAMPLE_RATE, &Editor::data_callback, &playback_state)
     {
         timeline.addTrack();

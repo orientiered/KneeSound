@@ -27,17 +27,17 @@ void TimelineView::zoomAtPixel(float pixel_x, float zoom_factor) {
 void TimelineView::scrollByFrames(int64_t delta_frames) {
     PLOG_DEBUG << "Scrolling timeline by " << delta_frames << " frames";
     if (delta_frames > 0) {
-        scroll_frame = std::min(scroll_frame + delta_frames, total_frames);
+        scroll_frame += delta_frames;
     } else {
         scroll_frame = (scroll_frame > static_cast<ma_uint64>(-delta_frames))
             ? scroll_frame + delta_frames : 0;
     }
 }
 
-std::pair<int, uint32_t> TimelineView::mousePosToTrackAndFrame() {
+std::pair<int, int64_t> TimelineView::mousePosToTrackAndFrame() {
     int track_idx = (mouse_pos.y - field_pos.y - grid_line_header) / track_height;
 
-    uint32_t start_frame = 0;
+    int64_t start_frame = 0;
     if ((mouse_pos.x - field_pos.x) >= 0) 
         start_frame = pixelToFrame(mouse_pos.x - field_pos.x);
 
@@ -129,12 +129,43 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
     draw_list->AddRectFilled(start, end, color_base, 3.0f);
     draw_list->AddRect(start, end, color_border, 3.0f);
 
-    // ==================== HEADER: LABEL AND EFFECT BUTTONS ====================== 
 
+    // Predifinitions 
     float text_pad = 2;
     float text_horizontal_pad = 10;
     float text_height = ImGui::GetFrameHeight();
     float bar_height = text_height + 2 * text_pad;
+
+    // Trim bars
+
+    ImVec2 trim_bar_size{10, track_height - bar_height};
+
+    auto [left_visible, right_visible] = getVisibleFramesRange();
+    bool allow_trim = (x_end - x_start) > trim_bar_size.x * 5;
+
+    auto draw_clip_trim = [&] (bool right, ImVec2 pos, const char *name) {
+        ImGui::SetCursorScreenPos(pos);
+        ID_GUARD((uint8_t*)&clip.id + 1 + right,
+            ImGui::InvisibleButton(name, trim_bar_size););
+
+        if (HandleClipTrimInteraction(right, clip)) {
+            draw_list->AddRectFilled(pos, pos + trim_bar_size, style.col_clip_selected, 2);
+        }
+    };
+
+    if (allow_trim) {
+        if (clip_left > left_visible) {
+            ImVec2 pos = {x_start - trim_bar_size.x / 2, y_top + bar_height};
+            draw_clip_trim(false, pos, "##LeftTrim");
+        }
+
+        if (clip_right < right_visible) {
+            ImVec2 pos = {x_end - trim_bar_size.x / 2, y_top + bar_height};
+            draw_clip_trim(true, pos, "##RightTrim");
+        }
+    }
+
+    // ==================== HEADER: LABEL AND EFFECT BUTTONS ====================== 
 
     float header_left_cursor = start.x;
     float header_right_cursor = end.x - text_horizontal_pad;
@@ -263,6 +294,54 @@ void TimelineView::DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2
 
 }
 
+/* =================== CLIP INTERACTIONS: CLICKING, TRIMMING, DRAGGING ==================== */
+
+bool TimelineView::HandleClipTrimInteraction(bool right, Clip& clip) {
+    bool hovered = ImGui::IsItemHovered();
+    bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+    bool active  = ImGui::IsItemActive();
+
+    if (active) {
+        if (ImGui::BeginTooltip()) {
+            ImGui::Text("Drag to trim clip");
+
+            auto [start_min, start_sec] = frameToMinSec(clip.timeline_start_frame);
+            auto [end_min, end_sec] = frameToMinSec(clip.getTimelineEndFrame());
+
+            ImGui::Text("Start: %d:%.3f", start_min, start_sec);
+            ImGui::Text("End: %d:%.3f", end_min, end_sec);
+
+            ImGui::EndTooltip();
+        }
+    } else if (hovered) {
+        if (ImGui::BeginTooltip()) {
+            
+            ImGui::Text("Trim");
+            ImGui::EndTooltip();
+        }
+    } 
+
+    if (clicked) {
+        interaction.trimmed_clip_id = clip.id;
+        interaction.mode = TimelineInteraction::Mode::TrimmingClip;
+        interaction.trimming_right = right;
+    }
+
+    return hovered || active;
+}
+
+bool TimelineView::HandleClipTrim(ClipId_t id) {
+    Clip *clip = timeline_.getClipById(id);
+
+    if (clip) {
+        return clip->trim(interaction.trimming_right, mousePosToTrackAndFrame().second);
+
+    }
+
+    return false;
+}
+
+
 //! call immediately after clip's base invisible button 
 // @return Pair of bools: is clip hovered, is clip selected 
 std::pair<bool, bool> TimelineView::HandleClipBaseInteraction(const Clip& clip) {
@@ -285,7 +364,6 @@ std::pair<bool, bool> TimelineView::HandleClipBaseInteraction(const Clip& clip) 
     return {hovered, interaction.selected_clip_id == clip.id};
 }
 
-/* =================== DRAGGING ======================================== */
 
 bool TimelineView::HandleHorizontalClipDrag(ClipId_t clip_id, ImVec2 mouse_delta) {
     // Конвертируем смещение в пикселях в кадры
@@ -302,8 +380,6 @@ bool TimelineView::HandleHorizontalClipDrag(ClipId_t clip_id, ImVec2 mouse_delta
             return true;
         } else if (frame_delta > 0) {
             clip->timeline_start_frame += frame_delta;
-            // expanding timeline if necessary
-            expandTimelineForClip(*clip);
 
             return true;
         }
@@ -672,19 +748,7 @@ ClipId_t TimelineView::addClipToTimeline(const Clip& clip, int track_idx, std::o
         clip_view[id] = *style;
     }
     
-    expandTimelineForClip(id);
-
     return id;
-}
-
-void TimelineView::expandTimelineForClip(const Clip& clip) {
-    // expanding timeline if necessary
-    total_frames = std::max(total_frames, clip.getTimelineEndFrame());
-}
-
-void TimelineView::expandTimelineForClip(ClipId_t id) {
-    Clip *clip = timeline_.getClipById(id);
-    if (clip) expandTimelineForClip(*clip);
 }
 
 
@@ -765,6 +829,14 @@ void TimelineView::HandleInteractions(PlaybackController& playback) {
         HandleVerticalClipDrag(interaction.selected_clip_id);
 
     } 
+
+    // 3.1 Clip trimming
+
+    if (interaction.trimmed_clip_id != CLIP_NONE &&
+        interaction.mode == TimelineInteraction::Mode::TrimmingClip)
+    {
+        HandleClipTrim(interaction.trimmed_clip_id);
+    }
 
     // 4 Clip deletion
     if (interaction.selected_clip_id != CLIP_NONE &&

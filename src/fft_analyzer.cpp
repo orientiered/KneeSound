@@ -11,7 +11,7 @@ void FFT_Analyzer::analyzeClip(const Clip &clip) {
 
     unsubscribe();
 
-    size_t nfft = std::min(1000000ull, clip.getDurationFrames()) & (~1ll);
+    size_t nfft = std::min(1000000ll, clip.getDurationFrames()) & (~1ll);
 
     auto nextPowerOfTwo = [](size_t n) {
         n--;

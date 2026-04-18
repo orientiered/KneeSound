@@ -11,13 +11,17 @@
 
 namespace waves {
 
-// Predifiniiton
+// Predefinition
 class PlaybackController;
 
 struct TimelineInteraction {
-    enum class Mode { None, Selecting, DraggingClip, ResizingClip } mode;
+    enum class Mode { None, Selecting, DraggingClip, TrimmingClip } mode;
     ClipId_t hovered_clip_id = CLIP_NONE; // Currently hovered clip
     ClipId_t selected_clip_id = CLIP_NONE;  // Selected clip id
+    
+    ClipId_t trimmed_clip_id = CLIP_NONE;
+    bool trimming_right = false;
+
     ma_uint64 drag_start_frame; // позиция клипа в момент начала перетаскивания, needed for undo/redo
     ImVec2 mouse_start_pos;
 
@@ -57,13 +61,12 @@ struct ClipboardPayload {
 };
 
 class TimelineView {
-    ma_uint64 total_frames;      // общая длина проекта
 
     float pixels_per_frame;      // масштаб: сколько пикселей на один кадр
     const float MAX_PPF = 100.f;
     const float MIN_PPF = 0.0001f;  //
 
-    ma_uint64 scroll_frame;      // кадр, соответствующий левому краю видимой области
+    ma_int64 scroll_frame;      // кадр, соответствующий левому краю видимой области
 
     ClipView clip_view_default{};
     TrackView track_view_default{};
@@ -125,9 +128,9 @@ public:
 
     FFT_Analyzer analyzer;
 
-    TimelineView(TimeLine &timeline, ma_uint64 len, float scale):
+    TimelineView(TimeLine &timeline, float scale):
         timeline_(timeline),
-        total_frames(len), pixels_per_frame(scale), scroll_frame(0)
+        pixels_per_frame(scale), scroll_frame(0)
     {}
 
     // === Clips and tracks view getters
@@ -161,12 +164,17 @@ public:
     }
 
     // === Various conversion functions
-    ma_uint64 getTimelineLen() const { 
-        return total_frames; 
-    }
     
+    
+    std::pair<int, float> frameToMinSec(ma_int64 frame) {
+        float total_sec = static_cast<float>(frame) / INNER_SAMPLE_RATE;
+        int mins = total_sec / 60;
+        float sec = total_sec - mins * 60;
+        return {mins, sec};
+    }
+
     // Кадр -> позиция в пикселях (относительно левого края канваса)
-    float frameToPixel(ma_uint64 frame) const {
+    float frameToPixel(ma_int64 frame) const {
         return static_cast<float>(frame - scroll_frame) * pixels_per_frame;
     }
 
@@ -175,8 +183,8 @@ public:
     }
 
     // Пиксель -> кадр
-    ma_uint64 pixelToFrame(float pixel_x) const {
-        return scroll_frame + static_cast<ma_uint64>(pixel_x / pixels_per_frame);
+    ma_int64 pixelToFrame(float pixel_x) const {
+        return scroll_frame + static_cast<ma_int64>(pixel_x / pixels_per_frame);
     }
 
     ma_int64  pixelToFrameRel(float pixel_x) const {
@@ -189,14 +197,14 @@ public:
         return static_cast<float>(frame) / INNER_SAMPLE_RATE * MILLIS_PER_SEC;
     }
 
-    std::pair<ma_uint64, ma_uint64> getVisibleFramesRange() const {
+    std::pair<ma_int64, ma_int64> getVisibleFramesRange() const {
         return {pixelToFrame(0), pixelToFrame(field_size.x)};
     }
 
-    std::pair<ma_uint64, float> getNearestBeatInPixels() const {
+    std::pair<ma_int64, float> getNearestBeatInPixels() const {
         // |  scroll  |       |
         const ma_uint64 step = getBeatStepInFrames();
-        ma_uint64 beat_idx = (scroll_frame + step - 1) / step;
+        ma_int64 beat_idx = (scroll_frame + step - 1) / step;
         return {beat_idx, frameToPixel(beat_idx*step)};
     }
 
@@ -219,10 +227,10 @@ public:
     }
 
 
-    std::pair<ma_uint64, ma_uint64> getVisibleClipRange(const Clip& clip) const {
+    std::pair<ma_int64, ma_int64> getVisibleClipRange(const Clip& clip) const {
         auto [vis_left, vis_right] = getVisibleFramesRange();
-        ma_uint64 left = std::max(clip.timeline_start_frame, vis_left);
-        ma_uint64 right = std::min(vis_right, clip.getTimelineEndFrame());
+        ma_int64 left = std::max(clip.timeline_start_frame, vis_left);
+        ma_int64 right = std::min(vis_right, clip.getTimelineEndFrame());
 
         return {left, right};
     }
@@ -233,16 +241,13 @@ public:
 
     void scrollByFrames(int64_t delta_frames);
 
-    std::pair<int, uint32_t> mousePosToTrackAndFrame();
+    std::pair<int, int64_t> mousePosToTrackAndFrame();
 
     // ====
 private:
     // general work with timeline
     void removeClipFromTimeline(ClipId_t id);
     ClipId_t addClipToTimeline(const Clip& clip, int tr_idx, std::optional<ClipView> style = std::nullopt);
-
-    void expandTimelineForClip(ClipId_t id);
-    void expandTimelineForClip(const Clip& clip);
 
     // clipboard
     void copyToClipboard(ClipId_t id);
@@ -253,6 +258,8 @@ private:
     // ====
 
     std::pair<bool, bool> HandleClipBaseInteraction(const Clip& clip);
+    bool HandleClipTrimInteraction(bool right, Clip& clip);
+    bool HandleClipTrim(ClipId_t id);
 
     bool HandleHorizontalClipDrag(ClipId_t clip_id, ImVec2 mouse_delta);
     bool HandleVerticalClipDrag(ClipId_t clip_id);
