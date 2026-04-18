@@ -44,22 +44,29 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, 
         "Rendering clip " << id << ": si " << out_start_i << " ei " << out_end_i << " srci " << src_i << 
         " gain " << gain;
 
-    // TODO: clip pan 
-    auto process_frame = [&](float *in, float *out) {
+    auto getFadeGain = [&](ma_int64 frame) {
+        return fade_in.getGain(timeline_start_frame, frame) * 
+               fade_out.getGain(getTimelineEndFrame(), frame);
+    };
+
+    auto process_frame = [&](ma_int64 frame, float *in, float *out) {
         float left = in[0], right = in[1];
 
         float pan_left  = (pan <= 0) ? 1 : (1 - pan);
         float pan_right = (pan >= 0) ? 1 : (1 + pan); 
-        float out_left  = left  * gain * pan_left;
-        float out_right = right * gain * pan_right; 
+        float fade_gain = getFadeGain(frame);
+
+        float out_left  = left  * gain * pan_left * fade_gain;
+        float out_right = right * gain * pan_right * fade_gain; 
 
         out[0] = out_left;
         out[1] = out_right;
     };
 
-    for (ma_uint64 out_i = out_start_i; out_i < out_end_i; out_i++, src_i++) {
+    for (ma_uint64 out_i = out_start_i, frame = start_frame; out_i < out_end_i; out_i++, src_i++, frame++) {
         assert(INNER_CHANNELS == 2);
-        process_frame(&source->pcmData[src_i*INNER_CHANNELS], 
+        process_frame(frame,
+                    &source->pcmData[src_i*INNER_CHANNELS], 
                       &out[out_i*INNER_CHANNELS]);
 
     }

@@ -40,6 +40,17 @@ struct ClipView {
     // Waveform
     ImU32 col_waveform      = IM_COL32(255, 255, 255, 100);
     float gain_waveform     = 1.0f; ///< Amplification coefficient for waveform
+
+    struct PeakCache {
+        ma_uint64 block_size; 
+        std::vector<float> min_peaks; // min in block
+        std::vector<float> max_peaks; // max in block
+    };
+    std::vector<PeakCache> peak_caches;
+
+    void buildPeakCache(ma_uint64 block_size, const AudioSourcePtr src);
+    void buildPeakCache(ma_uint64 block_size, const PeakCache &cache);
+    std::pair<float, float> getPeakCached(const AudioSourcePtr src, ma_uint64 f_start, ma_uint64 f_end);
 };
 
 struct TrackView {
@@ -69,6 +80,8 @@ class TimelineView {
     ma_int64 scroll_frame;      // кадр, соответствующий левому краю видимой области
 
     ClipView clip_view_default{};
+    ImU32 col_clip_fade = IM_COL32(140, 10, 10, 60);
+
     TrackView track_view_default{};
 
     ImU32 col_grid_line = IM_COL32(10, 10, 10, 255);
@@ -165,14 +178,6 @@ public:
 
     // === Various conversion functions
     
-    
-    std::pair<int, float> frameToMinSec(ma_int64 frame) {
-        float total_sec = static_cast<float>(frame) / INNER_SAMPLE_RATE;
-        int mins = total_sec / 60;
-        float sec = total_sec - mins * 60;
-        return {mins, sec};
-    }
-
     // Кадр -> позиция в пикселях (относительно левого края канваса)
     float frameToPixel(ma_int64 frame) const {
         return static_cast<float>(frame - scroll_frame) * pixels_per_frame;
@@ -235,6 +240,12 @@ public:
         return {left, right};
     }
 
+    ImRect getFullClipRect(ImVec2 track_start_pos, const Clip& clip) const {
+        return ImRect{track_start_pos.x + frameToPixel(clip.timeline_start_frame),
+                      track_start_pos.y,
+                      track_start_pos.x + frameToPixel(clip.getTimelineEndFrame()),
+                      track_start_pos.y + track_height};
+    }
     // === УТИЛИТЫ ДЛЯ ЗУМА И СКРОЛЛА ===
 
     void zoomAtPixel(float pixel_x, float zoom_factor);
@@ -278,7 +289,7 @@ private:
     void DrawClip(ImDrawList* draw_list, Clip& clip, ImVec2 track_start_pos);
 
     void DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
-                      ImVec2 canvas_pos, float height, std::pair<ma_uint64, ma_uint64> clip_timeline_frames);
+                      ImVec2 waveform_pos, float height, std::pair<ma_uint64, ma_uint64> clip_timeline_frames);
 
     void DrawPlayHead(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2 size);
 

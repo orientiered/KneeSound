@@ -28,6 +28,8 @@ struct DebugFlags {
     bool render_loop_logs = false;
     bool callback_logs = false;
     bool block_adapter_logs = false;
+
+    bool preview_new_waveform = false;
 };
 
 extern DebugFlags g_debug_flags;

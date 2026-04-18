@@ -4,6 +4,7 @@
 
 #include "kiss_fftr.h"
 #include "fft_utils.h"
+#include "algorithm"
 
 namespace waves {
 
@@ -187,6 +188,26 @@ public:
     std::vector<float> &calculateBandpass();
     std::vector<float> &calculateRejector();
     std::vector<float> &calculateKBand();
+};
+
+struct Fade {
+    enum FADE_DIRECTION { IN = 0, OUT = 1 };
+    FADE_DIRECTION direction;
+    int64_t duration; // duration in frames
+
+    float getGain(int64_t pivot, int64_t frame) const {
+        if (duration == 0) return 1.0f;
+
+        switch (direction) {
+            case IN: {
+                return std::clamp(static_cast<float>(frame - pivot) / duration, 0.f, 1.f);
+            } break;
+            case OUT: {
+                return std::clamp(static_cast<float>(pivot - frame) / duration, 0.f, 1.f);
+            } break;
+            default: return 1.0f;
+        }  
+    }
 };
 
 }

@@ -25,6 +25,22 @@ inline float clampSample(float sample, float threshold = 0.99f) {
     return sample;
 }
 
+inline ma_int64 secToFrame(float sec) {
+    return sec * INNER_SAMPLE_RATE;
+}
+
+inline float frameToSec(ma_int64 frame) {
+    return static_cast<float>(frame) / INNER_SAMPLE_RATE;
+}
+
+inline std::pair<int, float> frameToMinSec(ma_int64 frame) {
+    float total_sec = frameToSec(frame);
+    int mins = total_sec / 60;
+    float sec = total_sec - mins * 60;
+    return {mins, sec};
+}
+
+
 static const size_t START_RENDER_BUFFER_SIZE = 4096; 
 
 struct AudioSource {
@@ -50,9 +66,10 @@ struct AudioSource {
         return avg_amp;
     }
 
-    size_t getDuration() const {
+    ma_uint64 getDurationFrames() const {
         return pcmData.size() / INNER_CHANNELS;
     }   
+
 };
 
 using AudioSourcePtr = std::shared_ptr<AudioSource>;
@@ -84,19 +101,24 @@ public:
     bool muted = false;           // быстрый мьют без удаления
 
     // === Fade in/out ===
-    std::optional<std::pair<float, float>> fade_in;  // {duration_sec, curve}
-    std::optional<std::pair<float, float>> fade_out;
+    
+    Fade fade_in{Fade::IN, 0};  
+    Fade fade_out{Fade::OUT, 0};  
 
     // === Helpers ===
     ma_uint64 getSourceDuration() const {
         if (source && source->valid)
-            return source->getDuration();
+            return source->getDurationFrames();
 
         return 0;
     }
 
     ma_int64 getDurationFrames() const {
         return source_end_frame - source_start_frame;
+    }
+
+    float getDurationSec() const {
+        return frameToSec(getDurationFrames());
     }
 
     ma_int64 getTimelineEndFrame() const {

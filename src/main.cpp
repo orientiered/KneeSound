@@ -136,8 +136,13 @@ void handle_debug_controller() {
     ImGui::Checkbox("Log audio callback", &g_debug_flags.callback_logs);
     ImGui::Checkbox("Log block adapter", &g_debug_flags.block_adapter_logs);
 
+    ImGui::Separator();
+    ImGui::Checkbox("Preview new waveform", &g_debug_flags.preview_new_waveform);
+    ImGui::Separator();
     ImGui::Checkbox("Show demo window", &show_imgui_demo);
     ImGui::Checkbox("Show style editor", &show_style_editor);
+
+
 
 
     ImGui::End();
