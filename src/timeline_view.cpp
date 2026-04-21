@@ -771,6 +771,15 @@ void TimelineView::DrawEqSettings(bool *enable, Equalizer &eq, EqualizerSettings
 
 }
 
+void TimelineView::DrawPitchSettings(bool *enable, PitchShifter &pitch_shift) {
+    float stretch = pitch_shift.getStretch();
+
+    if (ImGui::DragFloat("Stretch", &stretch, 0.05, 0.1, 10)) {
+        pitch_shift.setStretch(stretch);
+    }
+}
+
+
 
 void TimelineView::DrawTrack(Track& track, bool parity) {
 
@@ -794,16 +803,26 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
     ID_GUARD(&track.id, ImGui::InputText("", &style.name); );
     
     const char * const EQ_POPUP = "EQ_POPUP";
+    const char * const PITCH_POPUP = "PITCH_POPUP";
     ID_GUARD(&track.enable_eq,
 
         if (ImGui::Button("Eq"))
             ImGui::OpenPopup(EQ_POPUP);
+
+        // ImGui::SameLine();
+        // if (ImGui::Button("Pitch")) 
+        //     ImGui::OpenPopup(PITCH_POPUP);
 
         if (ImGui::BeginPopup(EQ_POPUP)) {
             // TODO: use getter instead of direct access to map of equalizer settings
             DrawEqSettings(&track.enable_eq, track.equalizer, equalizer_settings[track.id]);
             ImGui::EndPopup();
         }
+
+        // if (ImGui::BeginPopup(PITCH_POPUP)) {
+        //     DrawPitchSettings(&track.enable_eq, track.pitch);
+        //     ImGui::EndPopup();
+        // }
     );
     
     ImGui::SameLine();

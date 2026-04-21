@@ -281,9 +281,11 @@ private:
 
     // ======== DRAWING ==============
 
+    void DrawEqSettings(bool *enable, Equalizer &eq, EqualizerSettings &settings);
+    void DrawPitchSettings(bool *enable, PitchShifter &pitch);
+    
     void DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2 canvas_size);
 
-    void DrawEqSettings(bool *enable, Equalizer &eq, EqualizerSettings &settings);
     void DrawTrack(Track& track, bool parity);
     // Track owns draw list for clip and waveform
     void DrawClip(ImDrawList* draw_list, Clip& clip, ImVec2 track_start_pos);

@@ -190,6 +190,7 @@ public:
     bool enable_eq = false;
     FreqDomainEffect fft_pipeline;
     Equalizer equalizer;
+    // PitchShifter  pitch;
     // ================ Methods ================================
 
     const std::vector<audio_sample_t> &renderBlock(ma_uint64 start_frame);

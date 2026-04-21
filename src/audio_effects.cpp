@@ -36,4 +36,34 @@ void FreqDomainEffect::applyOverlap(audio_sample_t *out, size_t ch_idx) {
     std::copy_n(time_data.begin() + hop_size_, hop_size_, overlap);
 }
 
+void PitchShifter::operator()(std::vector<kiss_fft_cpx> &freq_data) {
+    const size_t size = freq_data.size();
+
+    auto getInterpolatedFreq = [&](float idx) -> kiss_fft_cpx {
+        if (idx < 0 || idx >= size) return {0, 0};
+        int left_idx = std::floor(idx);
+        float p = idx - left_idx;
+
+        kiss_fft_cpx left = freq_data[left_idx];
+        kiss_fft_cpx right = (left_idx < (size - 1)) ? freq_data[left_idx+1] :
+                                                       kiss_fft_cpx{0, 0};
+        kiss_fft_cpx result = {
+            left.r * (1-p) + right.r * p,
+            left.i * (1-p) + right.i * p
+        };
+        return result;
+    };
+
+    if (stretch_k > 1) {
+        for (int i = 0; i < size; i++) {
+            freq_data[i] = getInterpolatedFreq(i    *stretch_k);
+        }
+    } else {
+        for (int i = size-1; i >= 0; i--) {
+            freq_data[i] = getInterpolatedFreq(i*stretch_k);
+        }
+    }
+}
+
+
 }

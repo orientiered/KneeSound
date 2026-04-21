@@ -151,6 +151,8 @@ const std::vector<audio_sample_t> &Track::renderBlock(ma_uint64 start_frame) {
 
     if (enable_eq)
         fft_pipeline.processBlock(buf.data(), equalizer);
+    // if (enable_eq)
+    //     fft_pipeline.processBlock(buf.data(), pitch);
 
     return rendering_buffer.writerSentReadyBuffer();
 }

@@ -5,6 +5,7 @@
 #include "kiss_fftr.h"
 #include "fft_utils.h"
 #include "algorithm"
+#include <functional>
 
 namespace waves {
 
@@ -71,8 +72,17 @@ private:
     void applyOverlap(audio_sample_t *out, size_t ch_idx);
 };
 
+/* ========================== Interface for freq domain effect ========== */
+
+// using FreqEffectCallback_t = 
+class IFreqEffect {
+public:
+    virtual void operator()(std::vector<kiss_fft_cpx> &freq_data) = 0;
+    virtual ~IFreqEffect() = default;
+};
+
 /* ========================== EQUALIZER ======================== */
-class Equalizer {
+class Equalizer: IFreqEffect {
 private:
     std::vector<float> freq_response_;      ///< Response curve used in processing
     std::vector<float> new_freq_response_;  ///< Used for asynchronous response change 
@@ -91,7 +101,7 @@ public:
         freq_response_updated_ = false;
     }
 
-    void operator()(std::vector<kiss_fft_cpx> &freq_data) {
+    void operator()(std::vector<kiss_fft_cpx> &freq_data) override {
         // Updating frequency response curve
         //TODO: potential race condition, but extremely rare
         if (!freq_response_updated_) {
@@ -105,6 +115,8 @@ public:
             freq_data[i].r *= freq_response_[i];
         }
     }
+
+    ~Equalizer() override = default;
 };
 
 
@@ -189,6 +201,51 @@ public:
     std::vector<float> &calculateRejector();
     std::vector<float> &calculateKBand();
 };
+
+
+class PitchShifter: IFreqEffect {
+private:
+    static inline const float MIN_STRETCH_K = 0.05;
+    float stretch_k = 1.0f;
+public:
+    void setStretch(float stretch) {
+        stretch_k = std::max(MIN_STRETCH_K, stretch);
+    }
+
+    float getStretch() const { return stretch_k; }
+    void setPitch(int octaves, int semitones, int cents);
+
+    void operator()(std::vector<kiss_fft_cpx> &freq_data) override;
+    ~PitchShifter() override = default;
+};
+
+// class ChainEffectProcessor {
+// private:
+//     using BlockProcessor = std::function<void(std::vector<kiss_fft_cpx>&)>;
+//     std::vector<std::shared_ptr<IFreqEffect>> effects_;
+
+//     using MetaInfo = int64_t;
+//     std::vector<MetaInfo> effects_meta_;
+
+// public:
+//     template<typename ProcessorT>
+//     void addEffect(ProcessorT &processor, MetaInfo meta = {}) {
+//         effects_.push_back(std::bind(&processor.operator(), &processor));
+//         effects_meta_.push_back(meta);
+//     }
+
+//     void popEffect() {
+//         effects_.pop_back();
+//         effects_meta_.pop_back();
+//     }
+
+//     void operator()(std::vector<kiss_fft_cpx> &freq_data) {
+//         for (int i = 0; i < effects_.size() ; i++) {
+//             effects_[i](freq_data);
+//         }
+//     }
+
+// };
 
 struct Fade {
     enum FADE_DIRECTION { IN = 0, OUT = 1 };
