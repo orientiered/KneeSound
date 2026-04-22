@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.26)
 project(AuEd
   LANGUAGES CXX
-  VERSION 0.1
+  VERSION 0.2
 )
 
 # normal variables have higher priority than options
@@ -12,7 +12,7 @@ add_subdirectory(lib_deps)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(EXEC_NAME editor.exe)
+set(EXEC_NAME KneeSound)
 
 option(ENABLE_ASAN "Enable Address Sanitizer" ON)
 
@@ -22,12 +22,11 @@ if (INCLUDE_DEBUG_SYMBOLS)
   add_compile_options("-g2")
 endif()
 
-if(ENABLE_ASAN)
+if(ENABLE_ASAN AND NOT WIN32)
     set(SAN_FLAGS "-fsanitize=address,undefined")
     add_compile_options(${SAN_FLAGS} -fno-omit-frame-pointer)
     add_link_options(${SAN_FLAGS})
 endif()
-
 
 
 # Copying SFML headers
@@ -59,6 +58,7 @@ if(WIN32)
           $<TARGET_FILE:sfml-graphics>
           $<TARGET_FILE:sfml-window>
           $<TARGET_FILE:sfml-system>
-          $<TARGET_FILE_DIR:example_exe>)
+          $<TARGET_FILE:kissfft>
+          $<TARGET_FILE_DIR:${EXEC_NAME}>)
   endif()
 endif()

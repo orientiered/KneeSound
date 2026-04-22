@@ -36,4 +36,5 @@ add_subdirectory(plog)
 # kissfft
 set(KISSFFT_TEST   OFF) # disabling test and tools build
 set(KISSFFT_TOOLS  OFF) 
+set(KISSFFT_STATIC NOT BUILD_SHARED_LIBS)
 add_subdirectory(kissfft)

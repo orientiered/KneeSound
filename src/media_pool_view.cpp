@@ -21,7 +21,7 @@ void MediaPoolView::DrawSelectDialog(Editor& editor) {
         config.countSelectionMax = 0; // selecting any number of files
 
         ImGuiFileDialog::Instance()->OpenDialog(IMPORT_DLG_KEY, "Choose File",
-             "Audio files (*.wav *.mp3 *.ogg){.wav,.mp3,.ogg}, All{.*}", config);
+             "Audio files (*.wav *.mp3 *.flac){.wav,.mp3,.flac}, All{.*}", config);
     }
     // display
     if (ImGuiFileDialog::Instance()->Display(IMPORT_DLG_KEY)) {
