@@ -30,7 +30,7 @@ void MediaPoolView::DrawSelectDialog(Editor& editor) {
                 ImGuiFileDialog::Instance()->GetSelection();
 
             for (auto [name, path]: selection) {
-                AudioSourcePtr src = decode_audio_from_file_async(name, path);
+                AudioSourcePtr src = decode_audio_from_file(name, path);
 
                 editor.media_pool.push_back(src);
 

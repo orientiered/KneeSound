@@ -29,7 +29,7 @@ struct DebugFlags {
     bool callback_logs = false;
     bool block_adapter_logs = false;
 
-    bool preview_new_waveform = false;
+    bool preview_new_waveform = true;
 };
 
 extern DebugFlags g_debug_flags;

@@ -40,17 +40,7 @@ struct ClipView {
     // Waveform
     ImU32 col_waveform      = IM_COL32(255, 255, 255, 100);
     float gain_waveform     = 1.0f; ///< Amplification coefficient for waveform
-
-    struct PeakCache {
-        ma_uint64 block_size; 
-        std::vector<float> min_peaks; // min in block
-        std::vector<float> max_peaks; // max in block
-    };
-    std::vector<PeakCache> peak_caches;
-
-    void buildPeakCache(ma_uint64 block_size, const AudioSourcePtr src);
-    void buildPeakCache(ma_uint64 block_size, const PeakCache &cache);
-    std::pair<float, float> getPeakCached(const AudioSourcePtr src, ma_uint64 f_start, ma_uint64 f_end);
+  
 };
 
 struct TrackView {
@@ -213,11 +203,11 @@ public:
         return {beat_idx, frameToPixel(beat_idx*step)};
     }
 
-    ImRect getClipRect(ImVec2 pos, float height, ma_uint64 left_frame, ma_uint64 right_frame) {
-        ImVec2 start(pos.x + frameToPixel(left_frame), pos.y);
-        ImVec2 end(pos.x + frameToPixel(right_frame), pos.y + track_height);
-        return ImRect(start, end);  
-    }
+    // ImRect getClipRect(ImVec2 pos, float height, ma_uint64 left_frame, ma_uint64 right_frame) {
+    //     ImVec2 start(pos.x + frameToPixel(left_frame), pos.y);
+    //     ImVec2 end(pos.x + frameToPixel(right_frame), pos.y + track_height);
+    //     return ImRect(start, end);  
+    // }
 
     ImU32 getGridLineCol() const {
         return col_grid_line;
@@ -291,7 +281,7 @@ private:
     void DrawClip(ImDrawList* draw_list, Clip& clip, ImVec2 track_start_pos);
 
     void DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
-                      ImVec2 waveform_pos, float height, std::pair<ma_uint64, ma_uint64> clip_timeline_frames);
+                      ImRect waveform_rect);
 
     void DrawPlayHead(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2 size);
 

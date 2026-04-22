@@ -40,8 +40,55 @@ inline std::pair<int, float> frameToMinSec(ma_int64 frame) {
     return {mins, sec};
 }
 
+inline audio_sample_t interleavedToMono(const audio_sample_t *sample, size_t channels) {
+    float sum = 0;
+    #pragma unroll
+    for (int i = 0; i < channels; i++) {
+        sum += sample[i];
+    }
+
+    return sum / channels;
+}
 
 static const size_t START_RENDER_BUFFER_SIZE = 4096; 
+
+struct PeakCache {
+    ma_uint64 block_size_; 
+    struct min_max {
+        float min = 10.0f;
+        float max = -10.0f;
+        void update(float s) {
+            min = std::min(min, s);
+            max = std::max(max, s);
+        }
+        void update(const min_max& other) {
+            min = std::min(min, other.min);
+            max = std::max(max, other.max);
+        }
+    };
+
+    std::vector<min_max> peaks; // min and max in block
+
+    PeakCache(ma_uint64 block_size, const std::vector<float> &samples, ma_uint64 channels);
+    PeakCache(ma_uint64 block_size, const PeakCache &cache);
+};
+
+struct PeakCacheManager {
+    std::vector<PeakCache> peak_caches;
+    void build(const std::vector<float> &samples, ma_uint64 channels) {
+        if (!peak_caches.empty()) return;
+
+        peak_caches.emplace_back(16, samples, channels);
+        peak_caches.emplace_back(64, peak_caches.back());
+        peak_caches.emplace_back(256, peak_caches.back());
+        peak_caches.emplace_back(1024, peak_caches.back());
+        peak_caches.emplace_back(4096, peak_caches.back());
+
+        std::reverse(peak_caches.begin(), peak_caches.end());
+    }
+
+    std::optional<PeakCache::min_max> getPeak(ma_uint64 f_start, ma_uint64 f_end) const; 
+};
 
 struct AudioSource {
     bool valid = false;
@@ -52,19 +99,31 @@ struct AudioSource {
     
     std::vector<float> pcmData;
 
+    PeakCacheManager cache;
+
     AudioSource(const std::string& name_, const std::string& path_): name(name_), path(path_) {}
      
-    float getMonoSampleAmplitude(ma_uint64 frame) {
+    float getMonoSampleAmplitude(ma_uint64 frame) const {
         if (frame >= pcmData.size() / INNER_CHANNELS) return 0;
 
-        float avg_amp = 0;
-        for (int i = 0; i < INNER_CHANNELS; i++) {
-            avg_amp += pcmData[frame*INNER_CHANNELS + i];
-        }
-
-        avg_amp /= INNER_CHANNELS;
-        return avg_amp;
+        return interleavedToMono(&pcmData[frame*INNER_CHANNELS], INNER_CHANNELS);
     }
+
+    PeakCache::min_max getPeakFallback(ma_uint64 start, ma_uint64 end) const {
+        PeakCache::min_max result;
+        for (ma_uint64 f = start; f < end; ++f) {
+            result.update(getMonoSampleAmplitude(f));
+        }
+        return result;
+    }
+
+    PeakCache::min_max getPeak(ma_uint64 start, ma_uint64 end) const {
+        auto cached = cache.getPeak(start, end);
+        if (cached) return *cached;
+        
+        return getPeakFallback(start, end);
+    }
+
 
     ma_uint64 getDurationFrames() const {
         return pcmData.size() / INNER_CHANNELS;
@@ -96,9 +155,10 @@ public:
     ma_int64 timeline_start_frame;
 
     // === General audio params ===
-    float gain_db = 0;        // громкость в децибелах (или линейный множитель)
+    double playback_speed = 1.0; 
+    float gain_db = 0;           // громкость в децибелах (или линейный множитель)
     float pan = 0;            // панорама: -1.0 (лево) ... 0.0 (центр) ... 1.0 (право)
-    bool muted = false;           // быстрый мьют без удаления
+    bool muted = false;           // mute
 
     // === Fade in/out ===
     
@@ -114,7 +174,7 @@ public:
     }
 
     ma_int64 getDurationFrames() const {
-        return source_end_frame - source_start_frame;
+        return static_cast<double>(source_end_frame - source_start_frame) / playback_speed;
     }
 
     float getDurationSec() const {
@@ -125,14 +185,32 @@ public:
         return timeline_start_frame + getDurationFrames();
     }
 
+    audio_sample_t* getClipSrcFrame(ma_int64 src_frame) const {
+        return &source->pcmData[src_frame * INNER_CHANNELS];
+    }
+
+    double clipFrameToSrcFrame(ma_int64 clip_frame) const {
+        return source_start_frame + static_cast<double>(clip_frame) * playback_speed;
+    }
+
+    ma_int64 srcFrameToClipFrame(double src_frame) const {
+        return (src_frame - source_start_frame) / playback_speed;
+    }
+
+    void getClipFrameInterpolated(audio_sample_t *out, double src_frame) const;
+
+    audio_sample_t getMonoClipFrame(ma_int64 clip_frame) const;
+    
+    PeakCache::min_max getPeak(ma_int64 clip_start_frame, ma_int64 clip_end_frame) const;
+
     // Конвертация: время на таймлайне -> кадр в источнике
-    std::optional<ma_uint64> timelineToSourceFrame(ma_int64 timeline_frame) const {
+    std::optional<ma_uint64> timelineToClipFrame(ma_int64 timeline_frame) const {
         if (timeline_frame < timeline_start_frame ||
             timeline_frame >= getTimelineEndFrame()) {
             return std::nullopt; // кадр вне границ клипа
         }
         ma_uint64 clip_local_frame = timeline_frame - timeline_start_frame;
-        return source_start_frame + clip_local_frame;
+        return clip_local_frame;
     }
 
     /// Renders frames to out array, ADDITIVELY 

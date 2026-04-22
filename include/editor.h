@@ -16,8 +16,7 @@
 
 namespace waves {
 
-AudioSourcePtr decode_audio_from_file(const std::string& name, const std::string& path);
-AudioSourcePtr decode_audio_from_file_async(const std::string& name, const std::string& path);
+AudioSourcePtr decode_audio_from_file(const std::string& name, const std::string& path, bool async = true);
 
 class Editor {
 public:

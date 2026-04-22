@@ -2,6 +2,66 @@
 
 namespace waves {
 
+/* ================= Peak caches ================ */
+
+PeakCache::PeakCache(ma_uint64 block_size, const std::vector<float> &samples, ma_uint64 channels) {
+    block_size_ = block_size;
+
+    ma_uint64 duration_frames = samples.size() / channels;
+    size_t num_blocks = (duration_frames + block_size - 1) / block_size;
+    peaks.resize(num_blocks);
+    
+    for (size_t b = 0; b < num_blocks; ++b) {
+        ma_uint64 start = b * block_size;
+        ma_uint64 end = std::min(start + block_size, duration_frames);
+        for (ma_uint64 i = start; i < end; ++i) {
+            float s = interleavedToMono(&samples[i * channels], channels);
+
+            peaks[b].update(s);
+        }
+    }
+}
+
+PeakCache::PeakCache(ma_uint64 block_size, const PeakCache &cache) {
+    block_size_ = block_size;
+
+    assert(block_size_ % cache.block_size_ == 0);
+
+
+    const size_t factor = block_size_ / cache.block_size_;
+    size_t num_blocks = cache.peaks.size() / factor;
+
+    peaks.resize(num_blocks);
+
+    for (size_t b = 0; b < num_blocks; ++b) {
+        ma_uint64 start = b * factor;
+        ma_uint64 end = (b+1) * factor;
+
+        for (ma_uint64 i = start; i < end; ++i) {
+            peaks[b].update(cache.peaks[i]);
+        }
+    }
+}
+
+std::optional<PeakCache::min_max> PeakCacheManager::getPeak(ma_uint64 f_start, ma_uint64 f_end) const {
+    const int threshold = 4;
+    for (auto& cache : peak_caches) {
+        if (f_end - f_start >= cache.block_size_ * threshold) { // порог: если диапазон большой
+            ma_uint64 b_start = f_start / cache.block_size_;
+            ma_uint64 b_end   = std::min(ma_uint64(cache.peaks.size()), (f_end + cache.block_size_ - 1) / cache.block_size_);
+            PeakCache::min_max mm{0, 0};
+            for (ma_uint64 b = b_start; b < b_end; ++b) {
+                mm.update(cache.peaks[b]);
+            }
+            return mm;
+        }
+    }
+
+    return std::nullopt;
+}
+
+
+
 /* ================= Clip     =================== */
 
 
@@ -13,6 +73,37 @@ std::ostream& operator<<(std::ostream& os, const Clip& clip) {
        << "Gain: " << clip.gain_db << " Muted: " << clip.muted << " Pan: " << clip.pan; 
     return os;
 }
+
+
+void Clip::getClipFrameInterpolated(audio_sample_t *out, double src_frame) const {
+    ma_int64 left_src = std::min(source_end_frame-1, static_cast<ma_int64>(std::floor(src_frame)));
+
+    audio_sample_t *left = getClipSrcFrame(left_src);
+    audio_sample_t *right = getClipSrcFrame(std::min(source_end_frame-1, left_src + 1));
+
+    float p = src_frame - left_src;
+
+    #pragma unroll
+    for (int i = 0; i < INNER_CHANNELS; i++) {
+        out[i] = left[i] * (1-p) + right[i] * p;
+    }
+}
+
+audio_sample_t Clip::getMonoClipFrame(ma_int64 clip_frame) const {
+    float sample[INNER_CHANNELS];
+    getClipFrameInterpolated(sample , clipFrameToSrcFrame(clip_frame));
+
+    return interleavedToMono(sample, INNER_CHANNELS);
+}
+
+PeakCache::min_max Clip::getPeak(ma_int64 clip_start_frame, ma_int64 clip_end_frame) const {
+    ma_int64 src_left = clipFrameToSrcFrame(clip_start_frame);
+    ma_int64 src_right = clipFrameToSrcFrame(clip_end_frame);
+
+    return source->getPeak(src_left, src_right);
+}
+
+
 
 // Renders frames to out array, ADDITIVELY 
 // Doesn't write zeros
@@ -29,32 +120,35 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, 
 
     if (out_start_i >= out_end_i) return;
 
-    auto src_i_opt = timelineToSourceFrame(start_frame + out_start_i);
-    if (!src_i_opt) {
+    auto clip_i_opt = timelineToClipFrame(start_frame + out_start_i);
+    if (!clip_i_opt) {
         PLOG_ERROR << "Invalid source start frame index";
         PLOG_ERROR << *this << "\n"
                    << out_start_i << " " << out_end_i << "\n";
     }
-    ma_uint64 src_i = *src_i_opt;
+    ma_uint64 clip_i = *clip_i_opt;
 
 
 
     float gain = dbToGain(gain_db);
     PLOG_VERBOSE_IF(g_debug_flags.callback_logs) <<
-        "Rendering clip " << id << ": si " << out_start_i << " ei " << out_end_i << " srci " << src_i << 
+        "Rendering clip " << id << ": si " << out_start_i << " ei " << out_end_i << " srci " << clip_i << 
         " gain " << gain;
 
-    auto getFadeGain = [&](ma_int64 frame) {
-        return fade_in.getGain(timeline_start_frame, frame) * 
-               fade_out.getGain(getTimelineEndFrame(), frame);
+    auto getFadeGain = [&](ma_int64 clip_frame) {
+        return fade_in.getGain(0, clip_frame) * 
+               fade_out.getGain(getDurationFrames(), clip_frame);
     };
 
-    auto process_frame = [&](ma_int64 frame, float *in, float *out) {
+    auto process_frame = [&](ma_int64 clip_frame, float *out) {
+        float in[2];
+        getClipFrameInterpolated(in, clipFrameToSrcFrame(clip_frame));
+
         float left = in[0], right = in[1];
 
         float pan_left  = (pan <= 0) ? 1 : (1 - pan);
         float pan_right = (pan >= 0) ? 1 : (1 + pan); 
-        float fade_gain = getFadeGain(frame);
+        float fade_gain = getFadeGain(clip_frame);
 
         float out_left  = left  * gain * pan_left * fade_gain;
         float out_right = right * gain * pan_right * fade_gain; 
@@ -63,22 +157,23 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, 
         out[1] = out_right;
     };
 
-    for (ma_uint64 out_i = out_start_i, frame = start_frame; out_i < out_end_i; out_i++, src_i++, frame++) {
+    for (ma_uint64 out_i = out_start_i; out_i < out_end_i; out_i++, clip_i++) {
         assert(INNER_CHANNELS == 2);
-        process_frame(frame,
-                    &source->pcmData[src_i*INNER_CHANNELS], 
-                      &out[out_i*INNER_CHANNELS]);
+        process_frame(clip_i, &out[out_i*INNER_CHANNELS]);
 
     }
     
 }
 
 bool Clip::trim(bool right, ma_int64 timeline_pos) {
+    ma_int64 avaialable_left = source_start_frame / playback_speed;
+    ma_int64 avaialable_right = (getSourceDuration() - source_end_frame) / playback_speed;
+
     if (!right) {
         // trim from left
         if (timeline_pos < getTimelineEndFrame() &&
-            timeline_pos > (timeline_start_frame - source_start_frame) ) {
-            source_start_frame += timeline_pos - timeline_start_frame;
+            timeline_start_frame - timeline_pos <= avaialable_left ) {
+            source_start_frame += (timeline_pos - timeline_start_frame) * playback_speed;
             timeline_start_frame = timeline_pos;
             return true;
         }
@@ -86,8 +181,8 @@ bool Clip::trim(bool right, ma_int64 timeline_pos) {
     } else {
         //trim from right
         if (timeline_pos > timeline_start_frame && 
-            timeline_pos <= (timeline_start_frame + getSourceDuration() - source_start_frame)) {
-            source_end_frame = source_start_frame + timeline_pos - timeline_start_frame;
+            timeline_pos - getTimelineEndFrame() <= avaialable_right) {
+            source_end_frame = clipFrameToSrcFrame(timeline_pos - timeline_start_frame);
             return true;
         }
     }
@@ -97,16 +192,18 @@ bool Clip::trim(bool right, ma_int64 timeline_pos) {
 
 std::optional<Clip> Clip::cut(ma_int64 timeline_pos) {
     PLOG_DEBUG << "Cutting clip " << id << " on pos " << timeline_pos;
-    std::optional<ma_uint64> source_pos = timelineToSourceFrame(timeline_pos);
+    std::optional<ma_uint64> clip_pos = timelineToClipFrame(timeline_pos);
     // if cut position is not in clip, do not cut
-    if (!source_pos) return std::nullopt;
+    if (!clip_pos) return std::nullopt;
+
+    ma_uint64 source_pos = clipFrameToSrcFrame(*clip_pos);
 
     Clip new_clip = copy();
     new_clip.timeline_start_frame = timeline_pos;
     new_clip.source_end_frame = source_end_frame;
-    new_clip.source_start_frame = *source_pos;
+    new_clip.source_start_frame = source_pos;
 
-    source_end_frame = *source_pos;
+    source_end_frame = source_pos;
 
     return new_clip;
 }

@@ -3,52 +3,46 @@
 
 namespace waves {
 
-AudioSourcePtr decode_audio_from_file(const std::string& name, const std::string& path) {
+
+AudioSourcePtr decode_audio_from_file(const std::string& name, const std::string& path, bool async) {
 
     PLOG_INFO << "Decoding audio from file " << path << " (name '" << name << "')";
+    PLOG_INFO << "Async: " << async;
 
     AudioDecoder decoder(path);
 
     AudioSourcePtr result = std::make_shared<AudioSource>(name, path);
 
-    std::optional<std::vector<audio_sample_t>> pcmData = decoder.decode();
+    auto decode = [](AudioSourcePtr source) {
+        AudioDecoder decoder(source->path);
 
-    if (pcmData) {
-        result->pcmData = std::move(*pcmData);
-        result->valid = true;
+        // busy flag
+        source->loading.store(true);
+
+        // trying to decode
+        std::optional<std::vector<audio_sample_t>> pcmData = decoder.decode();
+
+        // on success setting valid flag and computing peaks cache
+        if (pcmData) {
+            source->pcmData = std::move(*pcmData);
+            source->valid = true;
+            PLOG_INFO << "Building peaks cache...";
+            source->cache.build(source->pcmData, INNER_CHANNELS);
+        }
+
+        // not busy
+        source->loading.store(false);
+    };
+
+    if (async) {
+        std::thread decoder_thread(decode, result);
+        decoder_thread.detach();
+    } else {
+        decode(result);
     }
 
     return result;
 }
-
-AudioSourcePtr decode_audio_from_file_async(const std::string &name, const std::string &path) {
-    PLOG_INFO << "Decoding audio async from file " << path << " (name '" << name << "')";
-
-    AudioSourcePtr result = std::make_shared<AudioSource>(name, path);
-
-    auto async_decode = [](AudioSourcePtr source) {
-        AudioDecoder decoder(source->path);
-
-        source->loading.store(true);
-
-        std::optional<std::vector<audio_sample_t>> pcmData = decoder.decode();
-
-        if (pcmData) {
-            source->pcmData = std::move(*pcmData);
-            source->valid = true;
-        }
-
-        source->loading.store(false);
-
-    };
-
-    std::thread decoder_thread(async_decode, result);
-
-    decoder_thread.detach();
-    
-    return result;
-}
-
 
 void Editor::DrawExport() {
     if (!show_export_window) return;

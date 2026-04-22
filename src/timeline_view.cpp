@@ -46,97 +46,27 @@ std::pair<int, int64_t> TimelineView::mousePosToTrackAndFrame() {
 
 // ====================== CLIP DRAWING ==================
 
-void ClipView::buildPeakCache(ma_uint64 block_size, const AudioSourcePtr src) {
-    PeakCache cache;
-    cache.block_size = block_size;
-    size_t num_blocks = (src->getDurationFrames() + block_size - 1) / block_size;
-    cache.min_peaks.resize(num_blocks, 1.0f);
-    cache.max_peaks.resize(num_blocks, -1.0f);
-    
-    for (size_t b = 0; b < num_blocks; ++b) {
-        ma_uint64 start = b * block_size;
-        ma_uint64 end = std::min(start + block_size, static_cast<ma_uint64>(src->getDurationFrames()));
-        for (ma_uint64 i = start; i < end; ++i) {
-            float s = src->getMonoSampleAmplitude(i);
-            cache.min_peaks[b] = std::min(cache.min_peaks[b], s);
-            cache.max_peaks[b] = std::max(cache.max_peaks[b], s);
-        }
-    }
-    peak_caches.push_back(std::move(cache));
-}
-
-void ClipView::buildPeakCache(ma_uint64 block_size, const PeakCache &prev_cache) {
-    assert(block_size % prev_cache.block_size == 0);
-
-    const size_t factor = block_size / prev_cache.block_size;
-    PeakCache cache;
-    cache.block_size = block_size;
-    size_t num_blocks = prev_cache.max_peaks.size() / factor;
-    cache.min_peaks.resize(num_blocks, 1.0f);
-    cache.max_peaks.resize(num_blocks, -1.0f);
-
-    for (size_t b = 0; b < num_blocks; ++b) {
-        ma_uint64 start = b * factor;
-        ma_uint64 end = (b+1) * factor;
-        cache.min_peaks[b] = 
-            *std::min_element(&prev_cache.min_peaks[start], &prev_cache.min_peaks[end]);
-        cache.max_peaks[b] = 
-            *std::max_element(&prev_cache.max_peaks[start], &prev_cache.max_peaks[end]);
-
-    }
-    peak_caches.push_back(std::move(cache));
-}
-
-
-std::pair<float, float> ClipView::getPeakCached(const AudioSourcePtr src, ma_uint64 f_start, ma_uint64 f_end) {
-    if (peak_caches.empty()) {
-        buildPeakCache(16, src);
-        buildPeakCache(64, src);
-        buildPeakCache(256, peak_caches.back());
-        buildPeakCache(1024, peak_caches.back());
-        buildPeakCache(4096, peak_caches.back());
-        // buildPeakCache(16384,peak_caches.back());
-
-        std::reverse(peak_caches.begin(), peak_caches.end());
-    }
-
-    for (auto& cache : peak_caches) {
-        if (f_end - f_start >= cache.block_size * 4) { // порог: если диапазон большой
-            ma_uint64 b_start = f_start / cache.block_size;
-            ma_uint64 b_end   = std::min(ma_uint64(cache.max_peaks.size()), (f_end + cache.block_size - 1) / cache.block_size);
-            float min_v = 1.0f, max_v = -1.0f;
-            for (ma_uint64 b = b_start; b < b_end; ++b) {
-                min_v = std::min(min_v, cache.min_peaks[b]);
-                max_v = std::max(max_v, cache.max_peaks[b]);
-            }
-            return {min_v, max_v};
-        }
-    }
-    // Fallback: 
-    float min_v = 1.0f, max_v = -1.0f;
-    f_end = std::min(f_end, src->getDurationFrames());
-    for (ma_uint64 f = f_start; f < f_end; ++f) {
-        float s = src->getMonoSampleAmplitude(f);
-        min_v = std::min(min_v, s);
-        max_v = std::max(max_v, s);
-    }
-    return {min_v, max_v};
-
-}
-
 //! Assuming that clip_timeline frames are visible
 void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
-                      ImVec2 waveform_pos, float height, std::pair<ma_uint64, ma_uint64> timeline_clip_frames) {
+                      ImRect waveform_rect) {
     if (!clip.source || clip.source->pcmData.empty()) return;
 
-    float center_y = waveform_pos.y + height / 2;
+    float center_y = waveform_rect.GetCenter().y;
+    float height = waveform_rect.GetHeight();
 
-    ma_uint64 clip_start_frame = timeline_clip_frames.first - clip.timeline_start_frame + clip.source_start_frame;
-    ma_uint64 clip_end_frame  = timeline_clip_frames.second - clip.timeline_start_frame + clip.source_start_frame;
+    float start_x = waveform_rect.GetTL().x;
+    float end_x   = waveform_rect.GetTR().x;
+    float width   = waveform_rect.GetWidth();
 
-    float start_x = waveform_pos.x;
-    float width   = frameToPixelRel(timeline_clip_frames.second - timeline_clip_frames.first);
-    float end_x   = start_x + width;
+    auto [timeline_left_frame, timeline_right_frame] = getVisibleClipRange(clip);
+
+    // timeline_clip_frames.first - clip.timeline_start_frame + clip.source_start_frame;
+    assert(clip.timelineToClipFrame(timeline_left_frame));
+    ma_uint64 clip_start_frame = *clip.timelineToClipFrame(timeline_left_frame);
+    // timeline_clip_frames.second - clip.timeline_start_frame + clip.source_start_frame;
+    assert(clip.timelineToClipFrame(timeline_right_frame-1));
+
+    ma_uint64 clip_end_frame  = *clip.timelineToClipFrame(timeline_right_frame-1) + 1;
 
     // Calculating frame step
     // At least one frame or 1 pixel
@@ -154,8 +84,7 @@ void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
             float x = start_x + frameToPixelRel(f - clip_start_frame);
             // if (x > canvas_width) break;
 
-            // Берём сэмпл (упрощённо: только первый канал, усреднение)
-            float sample = clip.source->getMonoSampleAmplitude(f) * style.gain_waveform;
+            float sample = clip.getMonoClipFrame(f) * style.gain_waveform;
             float y = center_y - sample * (height / 2) * 0.9f; // 0.8 для отступа
 
             draw_list->AddLine(prev_point, ImVec2(x, y), style.col_waveform, 2.f);
@@ -164,19 +93,19 @@ void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
 
     } else {
 
-        float width_px = frameToPixelRel(timeline_clip_frames.second - timeline_clip_frames.first);
 
         int px_step = 1;
         for (int px = static_cast<int>(start_x); px < static_cast<int>(end_x); px += px_step) {
         // for (int px = static_cast<int>(start_x); px < static_cast<int>(end_x); ++px) {
             float x = static_cast<float>(px) + 0.5f;
-            float rel = (x - start_x) / width_px;
+            float rel = (x - start_x) / width;
+
             ma_uint64 f = clip_start_frame + static_cast<ma_uint64>(rel * (clip_end_frame - clip_start_frame));
             
             // Берём не один сэмпл, а мин/макс в радиусе ±1 пикселя
             // float min_v = 1.0f, max_v = -1.0f;
-            ma_uint64 radius = std::max<ma_uint64>(1, (clip_end_frame - clip_start_frame) / width_px * px_step);
-            auto [min_v, max_v] = style.getPeakCached(clip.source, f, f+radius);
+            ma_uint64 radius = std::max<ma_uint64>(1, (clip_end_frame - clip_start_frame) / width * px_step);
+            auto [min_v, max_v] = clip.getPeak(f, f+radius);
 
             min_v *= style.gain_waveform;
             max_v *= style.gain_waveform;
@@ -319,6 +248,13 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
             clip.fade_out.duration = secToFrame(fade_in_out_sec[1]);
         }
 
+        float playback_speed = clip.playback_speed;
+        const float MIN_SPEED = 0.05;
+        const float MAX_SPEED = 20;
+        if (ImGui::DragFloat("Time-stretch", &playback_speed, 0.05, 0.1, 10)) {
+            clip.playback_speed = std::clamp(playback_speed, MIN_SPEED, MAX_SPEED);
+        }
+
         if (ImGui::Button("FFT")) {
             analyzer.analyzeClip(clip);
         }
@@ -344,6 +280,9 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
 
 
     // ====================== WAVEFORM =======================
+    ImRect full_waveform_rect = full_clip_rect;
+    full_waveform_rect.Min += ImVec2{0, bar_height};
+
     draw_list->AddLine(ImVec2{x_start,y_top + bar_height},
                        ImVec2{x_end,  y_top + bar_height}, color_border, 1);
 
@@ -353,15 +292,10 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
     // Drawing waveform
     if (clip.source && (x_end - x_start) > 20) {
         DrawMiniWaveform(draw_list, clip,
-                waveform_start,
-                waveform_height,
-                {clip_left, clip_right});
+                ImRect{waveform_start, end});
     }
 
     // ======================= Fade in/out ======================
-
-    ImRect full_waveform_rect = full_clip_rect;
-    full_waveform_rect.Min += ImVec2{0, bar_height};
 
     if (clip.fade_in.duration > 0) {
         draw_list->AddTriangleFilled(full_waveform_rect.GetTL(), full_waveform_rect.GetBL(), 
@@ -511,7 +445,7 @@ bool TimelineView::HandleHorizontalClipDrag(ClipId_t clip_id, ImVec2 mouse_delta
         PLOG_DEBUG << "Dragging clip " << clip_id << " by " << frame_delta << "frames";
         // Проверяем границы проекта
         if (frame_delta < 0) {
-            clip->timeline_start_frame = std::max(0l, frame_delta + (int64_t)clip->timeline_start_frame);
+            clip->timeline_start_frame = std::max(static_cast<int64_t>(0), frame_delta + (int64_t)clip->timeline_start_frame);
             return true;
         } else if (frame_delta > 0) {
             clip->timeline_start_frame += frame_delta;
