@@ -15,12 +15,15 @@ namespace waves {
 class PlaybackController;
 
 struct TimelineInteraction {
-    enum class Mode { None, Selecting, DraggingClip, TrimmingClip } mode;
+    enum class Mode { None, Selecting, DraggingClip, TrimmingClip, StretchingClip } mode;
     ClipId_t hovered_clip_id = CLIP_NONE; // Currently hovered clip
     ClipId_t selected_clip_id = CLIP_NONE;  // Selected clip id
     
     ClipId_t trimmed_clip_id = CLIP_NONE;
     bool trimming_right = false;
+
+    ClipId_t stretched_clip_id = CLIP_NONE;
+    bool stretching_right = false;
 
     ma_uint64 drag_start_frame; // позиция клипа в момент начала перетаскивания, needed for undo/redo
     ImVec2 mouse_start_pos;
@@ -104,8 +107,11 @@ class TimelineView {
 
     ImVec2 canvas_pos;      ///< upper-left corner of whole timeline window
     ImVec2 full_canvas_size;
+    ImVec2 global_canvas_pos; ///< canvas pos without YScroll
+
 
     ImVec2 field_pos;       ///< upper-left corner of timeline, not including track info, canvas_pos + {track_info_width, 0} 
+    ImVec2 global_field_pos; ///< field pos without YScroll
     ImVec2 field_size;      ///< size of timeline without track_info
 
     ImVec2 mouse_pos;       ///< absolute mouse cursor position
@@ -259,8 +265,9 @@ private:
     // ====
 
     std::pair<bool, bool> HandleClipBaseInteraction(const Clip& clip);
-    bool HandleClipTrimInteraction(bool right, Clip& clip);
+    bool HandleClipTrimStretchInteraction(bool right, Clip& clip);
     bool HandleClipTrim(ClipId_t id);
+    bool HandleClipStretch(ClipId_t id);
 
     bool HandleHorizontalClipDrag(ClipId_t clip_id, ImVec2 mouse_delta);
     bool HandleVerticalClipDrag(ClipId_t clip_id);

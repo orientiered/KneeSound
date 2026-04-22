@@ -165,6 +165,36 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, 
     
 }
 
+bool Clip::stretch(bool right, ma_int64 timeline_pos) {
+    
+    double old_src_duration = static_cast<double>(source_end_frame - source_start_frame);
+
+    if (!right) {
+        ma_int64 new_duration = getTimelineEndFrame() - timeline_pos;
+        double new_stretch = static_cast<double>(new_duration) / old_src_duration;
+        
+        if (new_stretch > 0) {
+            double new_playback_speed = 1/new_stretch;
+
+            bool applied = new_playback_speed == setPlaybackSpeed(new_playback_speed);
+            if (applied) 
+                timeline_start_frame = timeline_pos;
+            return applied;
+        }
+    } else {
+        ma_int64 new_duration = timeline_pos - timeline_start_frame;
+        double new_stretch = static_cast<double>(new_duration) / old_src_duration;
+        
+        if (new_stretch > 0) {
+            double new_playback_speed = 1/new_stretch;
+
+            return new_playback_speed == setPlaybackSpeed(new_playback_speed);
+        }
+    }
+    return false;
+}
+
+
 bool Clip::trim(bool right, ma_int64 timeline_pos) {
     ma_int64 avaialable_left = source_start_frame / playback_speed;
     ma_int64 avaialable_right = (getSourceDuration() - source_end_frame) / playback_speed;

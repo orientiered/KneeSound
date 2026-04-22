@@ -156,6 +156,9 @@ public:
 
     // === General audio params ===
     double playback_speed = 1.0; 
+    static inline const double MAX_PLAYBACK_SPEED = 10.0;
+    static inline const double MIN_PLAYBACK_SPEED = 0.1;
+
     float gain_db = 0;           // громкость в децибелах (или линейный множитель)
     float pan = 0;            // панорама: -1.0 (лево) ... 0.0 (центр) ... 1.0 (право)
     bool muted = false;           // mute
@@ -223,6 +226,13 @@ public:
     /// Cut clip on timeline_pos. On success returns new created clip
     std::optional<Clip> cut(ma_int64 timeline_pos);
 
+    bool stretch(bool right, ma_int64 timeline_pos);
+
+    double setPlaybackSpeed(double speed) {
+        playback_speed = std::clamp(speed, MIN_PLAYBACK_SPEED, MAX_PLAYBACK_SPEED);
+        return playback_speed;
+    }
+    
     friend std::ostream& operator<<(std::ostream& os, const Clip& clip);
 
     Clip copy() {

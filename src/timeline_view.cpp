@@ -132,11 +132,9 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
     |                      |
     ------------------------ end
     */
-
     // absolute frames on timeline
     auto [clip_left, clip_right] = getVisibleClipRange(clip);
     // clip is not visible, skipping
-    if (clip_left >= clip_right) return;
 
     ClipView &style = getClipView(clip);
 
@@ -145,6 +143,11 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
     // TODO: draw two channels
     float y_top = track_start_pos.y + clip_vert_pad;
     float y_bottom = track_start_pos.y + track_height - clip_vert_pad;
+
+    // ImGui::SetCursorScreenPos(ImVec2{x_start, y_top});
+    // ID_GUARD(&clip + 5, ImGui::Text("Aboba"););
+
+    if (clip_left >= clip_right) return;
 
     ImVec2 start(x_start, y_top), end(x_end, y_bottom);
     ImRect full_clip_rect = getFullClipRect(track_start_pos, clip);
@@ -184,7 +187,7 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
         ID_GUARD((uint8_t*)&clip.id + 1 + right,
             ImGui::InvisibleButton(name, trim_bar_size););
 
-        if (HandleClipTrimInteraction(right, clip)) {
+        if (HandleClipTrimStretchInteraction(right, clip)) {
             draw_list->AddRectFilled(pos, pos + trim_bar_size, style.col_clip_selected, 2);
         }
     };
@@ -249,10 +252,8 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
         }
 
         float playback_speed = clip.playback_speed;
-        const float MIN_SPEED = 0.05;
-        const float MAX_SPEED = 20;
-        if (ImGui::DragFloat("Time-stretch", &playback_speed, 0.05, 0.1, 10)) {
-            clip.playback_speed = std::clamp(playback_speed, MIN_SPEED, MAX_SPEED);
+        if (ImGui::DragFloat("Time-stretch", &playback_speed, 0.05, Clip::MIN_PLAYBACK_SPEED, Clip::MAX_PLAYBACK_SPEED)) {
+            clip.setPlaybackSpeed(playback_speed);
         }
 
         if (ImGui::Button("FFT")) {
@@ -365,14 +366,16 @@ void TimelineView::DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2
 
 /* =================== CLIP INTERACTIONS: CLICKING, TRIMMING, DRAGGING ==================== */
 
-bool TimelineView::HandleClipTrimInteraction(bool right, Clip& clip) {
+bool TimelineView::HandleClipTrimStretchInteraction(bool right, Clip& clip) {
     bool hovered = ImGui::IsItemHovered();
     bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
     bool active  = ImGui::IsItemActive();
+    bool alt_pressed = ImGui::IsKeyDown(ImGuiKey_LeftAlt);
 
     if (active) {
         if (ImGui::BeginTooltip()) {
-            ImGui::Text("Drag to trim clip");
+            const char *action = (interaction.mode == TimelineInteraction::Mode::TrimmingClip) ? "trim" : "stretch";
+            ImGui::Text("Drag to %s clip", action);
 
             auto [start_min, start_sec] = frameToMinSec(clip.timeline_start_frame);
             auto [end_min, end_sec] = frameToMinSec(clip.getTimelineEndFrame());
@@ -384,16 +387,23 @@ bool TimelineView::HandleClipTrimInteraction(bool right, Clip& clip) {
         }
     } else if (hovered) {
         if (ImGui::BeginTooltip()) {
-            
-            ImGui::Text("Trim");
+
+            const char *text = (alt_pressed) ? "Stretch" : "Trim"; 
+            ImGui::Text("%s", text);
             ImGui::EndTooltip();
         }
     } 
 
     if (clicked) {
-        interaction.trimmed_clip_id = clip.id;
-        interaction.mode = TimelineInteraction::Mode::TrimmingClip;
-        interaction.trimming_right = right;
+        if (alt_pressed) {
+            interaction.stretched_clip_id = clip.id;
+            interaction.stretching_right = right;
+            interaction.mode = TimelineInteraction::Mode::StretchingClip;
+        } else {
+            interaction.trimmed_clip_id = clip.id;
+            interaction.trimming_right = right;
+            interaction.mode = TimelineInteraction::Mode::TrimmingClip;
+        }
     }
 
     return hovered || active;
@@ -404,7 +414,16 @@ bool TimelineView::HandleClipTrim(ClipId_t id) {
 
     if (clip) {
         return clip->trim(interaction.trimming_right, mousePosToTrackAndFrame().second);
+    }
 
+    return false;
+}
+
+bool TimelineView::HandleClipStretch(ClipId_t id) {
+    Clip *clip = timeline_.getClipById(id);
+
+    if (clip) {
+        return clip->stretch(interaction.stretching_right, mousePosToTrackAndFrame().second);
     }
 
     return false;
@@ -926,6 +945,14 @@ void TimelineView::HandleInteractions(PlaybackController& playback) {
         HandleClipTrim(interaction.trimmed_clip_id);
     }
 
+    // 3.2 Clip stretching
+
+    if (interaction.stretched_clip_id != CLIP_NONE &&
+        interaction.mode == TimelineInteraction::Mode::StretchingClip)
+    {
+        HandleClipStretch(interaction.stretched_clip_id);
+    }
+
     // 4 Clip deletion
     if (interaction.selected_clip_id != CLIP_NONE &&
         ImGui::IsKeyPressed(ImGuiKey_Delete)) 
@@ -1011,6 +1038,7 @@ void TimelineView::HandleInteractions(PlaybackController& playback) {
 
 void TimelineView::DrawTimeline(PlaybackController& playback) {
 
+    // ImGui::SetNextWindowContentSize(ImVec2(1e6, 0));
     // Timeline over all available space
     ImGui::BeginChild("Timeline_canvas", ImVec2(0, 0), ImGuiChildFlags_Borders, 
         ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_HorizontalScrollbar);
@@ -1020,15 +1048,18 @@ void TimelineView::DrawTimeline(PlaybackController& playback) {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
     canvas_pos = ImGui::GetCursorScreenPos();
+    global_canvas_pos = ImGui::GetWindowPos();
     full_canvas_size = ImGui::GetContentRegionAvail();
+
     /*    track_info | timeline         */
 
+    global_field_pos = ImGui::GetWindowPos() + ImVec2{track_info_width, 0};
     field_pos = canvas_pos + ImVec2{track_info_width, 0};
     field_size = full_canvas_size - ImVec2{track_info_width, 0};
 
     // Invisible button that detects clicks on empty space
     {
-        ImGui::CursorGuard cg(field_pos); // setting cursor and saving previous position
+        ImGui::CursorGuard cg(global_field_pos); // setting cursor and saving previous position
         ImGui::SetNextItemAllowOverlap();  
         ImGui::InvisibleButton("##Timeline_background", field_size);
         clicked_on_bg = ImGui::IsItemClicked(ImGuiMouseButton_Left);
@@ -1037,8 +1068,8 @@ void TimelineView::DrawTimeline(PlaybackController& playback) {
 
     mouse_pos = ImGui::GetMousePos();
     // mouse is in timeline zone
-    hovered_all = ImRect(canvas_pos, canvas_pos + full_canvas_size).Contains(mouse_pos);
-    hovered = ImRect(field_pos, field_pos + field_size).Contains(mouse_pos);
+    hovered_all = ImRect(global_canvas_pos, canvas_pos + full_canvas_size).Contains(mouse_pos);
+    hovered = ImRect(global_field_pos, field_pos + field_size).Contains(mouse_pos);
     focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
 
     clicked = hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
@@ -1053,16 +1084,28 @@ void TimelineView::DrawTimeline(PlaybackController& playback) {
 
     ImGui::SetCursorScreenPos(canvas_pos);
     // === 2. Drawing time grid ===
-    DrawTimeGrid(draw_list, field_pos, field_size);
+    DrawTimeGrid(draw_list, global_field_pos, field_size);
+    // DrawTimeGrid(draw_list, field_pos, field_size);
     
 
     // === 3. Курсор воспроизведения ===
-    DrawPlayHead(draw_list, field_pos, field_size);
+    DrawPlayHead(draw_list, global_field_pos, field_size);
 
     // === 4. Interaction ========================
 
     HandleInteractions(playback);
 
+    // ===  Bottom Slider ========================
+
+    ImGui::SetCursorScreenPos(global_field_pos + ImVec2{0, field_size.y - ImGui::GetTextLineHeightWithSpacing()});
+    ImGui::SetNextItemWidth(field_size.x);
+    {
+        ImGui::IdGuard ig(&scroll_frame);
+        int slider_scroll = scroll_frame;
+        if (ImGui::SliderInt("##TimelineXSlider", &slider_scroll, 0, 1e6, "", ImGuiSliderFlags_NoInput)) {
+            scroll_frame = slider_scroll;
+        }
+    }
 
     ImGui::EndChild();
 
