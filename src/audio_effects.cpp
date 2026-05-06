@@ -1,5 +1,7 @@
 #include <algorithm>
+#include <vector>
 #include "audio_effects.h"
+#include "common.h"
 
 /* ================= Equalizer ================== */
 
@@ -24,7 +26,7 @@ void FreqDomainEffect::prepareTimeData(audio_sample_t *in, size_t ch_idx) {
 }
 
 void FreqDomainEffect::applyOverlap(audio_sample_t *out, size_t ch_idx) {
-    
+
     audio_sample_t *overlap = &overlap_add_[ch_idx*hop_size_];
 
     for (size_t idx = 0; idx < hop_size_; idx++) {
@@ -63,6 +65,76 @@ void PitchShifter::operator()(std::vector<kiss_fft_cpx> &freq_data) {
             freq_data[i] = getInterpolatedFreq(i*stretch_k);
         }
     }
+}
+
+BiquadSettings::Coeffs BiquadSettings::makeLPF(double fc, double Q, double gainDb, double fs) {
+    RBJ_Params p(fc, Q, gainDb, fs);
+
+    double b1 = 1.0 - p.cos_w0;
+    double b0 = b1 / 2.0;
+    double b2 = b1 / 2.0;
+
+    double a0 = 1.0 + p.alpha;
+    double a1 = -2.0 * p.cos_w0;
+    double a2 = 1.0 - p.alpha;
+
+    return Coeffs(b0, b1, b2, a0, a1, a2);
+}
+
+BiquadSettings::Coeffs BiquadSettings::makeHPF(double fc, double Q, double gainDb, double fs) {
+    RBJ_Params p(fc, Q, gainDb, fs);
+
+    double b1 = -(1.0 - p.cos_w0);
+    double b0 = -b1 / 2.0;
+    double b2 = -b1 / 2.0;
+
+    double a0 = 1.0 + p.alpha;
+    double a1 = -2.0 * p.cos_w0;
+    double a2 = 1.0 - p.alpha;
+
+    return Coeffs(b0, b1, b2, a0, a1, a2);
+}
+
+BiquadSettings::Coeffs BiquadSettings::makeBPF(double fc, double Q, double gainDb, double fs) {
+    RBJ_Params p(fc, Q, gainDb, fs);
+
+    double b0 = Q * p.alpha;
+    double b1 = 0;
+    double b2 = -Q * p.alpha;
+
+    double a0 = 1.0 + p.alpha;
+    double a1 = -2.0 * p.cos_w0;
+    double a2 = 1.0 - p.alpha;
+
+    return Coeffs(b0, b1, b2, a0, a1, a2);
+}
+
+BiquadSettings::Coeffs BiquadSettings::makeNotch(double fc, double Q, double gainDb, double fs) {
+
+    RBJ_Params p(fc, Q, gainDb, fs);
+
+    double b0 = 1.0;
+    double b1 = -2.0 * p.cos_w0;
+    double b2 = 1.0;
+    double a0 = 1.0 + p.alpha;
+    double a1 = -2.0 * p.cos_w0;
+    double a2 = 1.0 - p.alpha;
+
+    return Coeffs(b0, b1, b2, a0, a1, a2);
+}
+
+BiquadSettings::Coeffs BiquadSettings::makePeaking(double fc, double Q, double gainDb, double fs) {
+
+    RBJ_Params p(fc, Q, gainDb, fs);
+
+    double a0 = 1.0 + p.alpha / p.A;
+    double b0 = (1.0 + p.alpha * p.A);
+    double b1 = (-2.0 * p.cos_w0);
+    double b2 = (1.0 - p.alpha * p.A);
+    double a1 = (-2.0 * p.cos_w0);
+    double a2 = (1.0 - p.alpha / p.A);
+
+    return Coeffs(b0, b1, b2, a0, a1, a2);
 }
 
 

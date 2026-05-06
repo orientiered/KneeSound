@@ -34,7 +34,7 @@ Source: https://en.wikipedia.org/wiki/WAV
    SampledData
 
 Total header size = 44 bytes
-SampledDataSize = byte_per_block * total_frames 
+SampledDataSize = byte_per_block * total_frames
 */
 
 /* =================== EXPORTER HELPERS ======================= */
@@ -90,10 +90,10 @@ void Exporter::encodeAudio(encoder_callback_t callback, void *data) {
 
     while (current_frame < export_end_frame) {
         // updating status
-        current_export_frame_ = current_frame; 
+        current_export_frame_ = current_frame;
 
         // writing frames
-        uint64_t frame_count = ((current_frame + step) >= export_end_frame ) ? 
+        uint64_t frame_count = ((current_frame + step) >= export_end_frame ) ?
                                 export_end_frame - current_frame :
                                 step;
 
@@ -136,7 +136,7 @@ bool Exporter::startEncoding(encoder_callback_t callback, void *data) {
 
     PLOG_DEBUG << "Writing WAV Header";
     writeWAVHeader();
-    
+
     PLOG_DEBUG << "Launching encoder thread";
     std::thread encoding_thread(&Exporter::encodeAudio, this, callback, data);
 
@@ -165,8 +165,8 @@ int32_t Exporter::setStartFrame(int32_t frame) {
     if (!ready.load()) return export_start_frame;
 
     export_start_frame = std::max(0, frame);
-    export_end_frame = std::max(export_start_frame, export_end_frame); 
-    
+    export_end_frame = std::max(export_start_frame, export_end_frame);
+
     return export_start_frame;
 }
 
@@ -193,7 +193,7 @@ void timeline_render_callback(void *data, audio_sample_t *out, uint64_t start_fr
 
 
 void Exporter_View::Draw(Editor& editor) {
-    
+
     static std::string output_path = "";
 
     const char *label = (output_path == "") ? "Choose file" : output_path.c_str();
@@ -225,19 +225,19 @@ void Exporter_View::Draw(Editor& editor) {
     int32_t max_frame = INNER_SAMPLE_RATE * 60 * 60; // 1 hour limit for now
     // int32_t max_frame = editor.tl_view.getTimelineLen();
 
-    if (ImGui::SliderInt2("##export_range_slider", reinterpret_cast<int32_t*>(&export_range), 
+    if (ImGui::SliderInt2("##export_range_slider", reinterpret_cast<int32_t*>(&export_range),
                     0, max_frame, "%u")) {
         exporter.setStartFrame(export_range.first);
         exporter.setEndFrame(export_range.second);
-    }  
+    }
 
     if (ImGui::Button("Set start to playhead")) {
-        exporter.setStartFrame(editor.timeline.playhead_frame);   
+        exporter.setStartFrame(editor.timeline.playhead_frame);
     }
     ImGui::SameLine();
 
     if (ImGui::Button("Set end to playhead")) {
-        exporter.setEndFrame(editor.timeline.playhead_frame);   
+        exporter.setEndFrame(editor.timeline.playhead_frame);
     }
 
     export_range = exporter.getExportRange();
@@ -253,7 +253,7 @@ void Exporter_View::Draw(Editor& editor) {
     if (encoder_started && !new_started) {
         encoder_finished = true;
         output_path = ""; // resetting path
-    } 
+    }
     encoder_started = new_started;
 
     if (encoder_started ) {
@@ -269,7 +269,7 @@ void Exporter_View::Draw(Editor& editor) {
             ImGui::Text("Failed to start encoding");
         }
 
-        if (ImGui::Button("Export")) {  
+        if (ImGui::Button("Export")) {
             encoder_finished = false;
             error_on_start = !exporter.startEncoding(timeline_render_callback, &editor.timeline);
             if (!error_on_start) encoder_started = true;

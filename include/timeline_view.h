@@ -18,7 +18,7 @@ struct TimelineInteraction {
     enum class Mode { None, Selecting, DraggingClip, TrimmingClip, StretchingClip } mode;
     ClipId_t hovered_clip_id = CLIP_NONE; // Currently hovered clip
     ClipId_t selected_clip_id = CLIP_NONE;  // Selected clip id
-    
+
     ClipId_t trimmed_clip_id = CLIP_NONE;
     bool trimming_right = false;
 
@@ -36,20 +36,20 @@ struct ClipView {
     std::string name = "Clip";
 
     // Color palette
-    ImU32 col_clip_selected = IM_COL32(170, 190, 170, 220); 
-    ImU32 col_clip_base     = IM_COL32(150, 160, 150, 180); 
+    ImU32 col_clip_selected = IM_COL32(170, 190, 170, 220);
+    ImU32 col_clip_base     = IM_COL32(150, 160, 150, 180);
     ImU32 col_clip_text     = IM_COL32(255, 255, 255, 255);
 
     // Waveform
     ImU32 col_waveform      = IM_COL32(255, 255, 255, 100);
     float gain_waveform     = 1.0f; ///< Amplification coefficient for waveform
-  
+
 };
 
 struct TrackView {
     std::string name = "Track";
 
-    ImU32 col_track_bg_odd  = IM_COL32(80, 80, 80, 200); 
+    ImU32 col_track_bg_odd  = IM_COL32(80, 80, 80, 200);
     ImU32 col_track_bg_even = IM_COL32(60, 60, 60, 200);
 };
 
@@ -84,7 +84,7 @@ class TimelineView {
     int   grid_line_count_limit = 10;
     int   grid_minor_lines_per_major = 4;
 
-    float grid_line_header = 50.f; 
+    float grid_line_header = 50.f;
 
     ImU32 col_playhead  = IM_COL32(209, 120, 5, 255);
 
@@ -110,7 +110,7 @@ class TimelineView {
     ImVec2 global_canvas_pos; ///< canvas pos without YScroll
 
 
-    ImVec2 field_pos;       ///< upper-left corner of timeline, not including track info, canvas_pos + {track_info_width, 0} 
+    ImVec2 field_pos;       ///< upper-left corner of timeline, not including track info, canvas_pos + {track_info_width, 0}
     ImVec2 global_field_pos; ///< field pos without YScroll
     ImVec2 field_size;      ///< size of timeline without track_info
 
@@ -128,9 +128,9 @@ class TimelineView {
     std::unordered_map<ClipId_t, ClipView> clip_view;
     std::unordered_map<TrackId_t, TrackView> track_view;
     //TODO: store EffectId to enable multiple equalizers for each track
-    std::unordered_map<TrackId_t, EqualizerSettings> equalizer_settings;
+    std::unordered_map<TrackId_t, EqualizerView> equalizer_settings;
 
-    TimelineClipboard clipboard; 
+    TimelineClipboard clipboard;
 
     TimeLine &timeline_; /// < Viewed timeline
 public:
@@ -173,7 +173,7 @@ public:
     }
 
     // === Various conversion functions
-    
+
     // Кадр -> позиция в пикселях (относительно левого края канваса)
     float frameToPixel(ma_int64 frame) const {
         return static_cast<float>(frame - scroll_frame) * pixels_per_frame;
@@ -212,7 +212,7 @@ public:
     // ImRect getClipRect(ImVec2 pos, float height, ma_uint64 left_frame, ma_uint64 right_frame) {
     //     ImVec2 start(pos.x + frameToPixel(left_frame), pos.y);
     //     ImVec2 end(pos.x + frameToPixel(right_frame), pos.y + track_height);
-    //     return ImRect(start, end);  
+    //     return ImRect(start, end);
     // }
 
     ImU32 getGridLineCol() const {
@@ -278,9 +278,9 @@ private:
 
     // ======== DRAWING ==============
 
-    void DrawEqSettings(bool *enable, Equalizer &eq, EqualizerSettings &settings);
+    void DrawEqSettings(bool *enable, Equalizer &eq, EqualizerView &settings);
     void DrawPitchSettings(bool *enable, PitchShifter &pitch);
-    
+
     void DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2 canvas_size);
 
     void DrawTrack(Track& track, bool parity);

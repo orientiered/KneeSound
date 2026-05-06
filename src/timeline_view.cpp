@@ -38,7 +38,7 @@ std::pair<int, int64_t> TimelineView::mousePosToTrackAndFrame() {
     int track_idx = (mouse_pos.y - field_pos.y - grid_line_header) / track_height;
 
     int64_t start_frame = 0;
-    if ((mouse_pos.x - field_pos.x) >= 0) 
+    if ((mouse_pos.x - field_pos.x) >= 0)
         start_frame = pixelToFrame(mouse_pos.x - field_pos.x);
 
     return std::make_pair(track_idx, start_frame);
@@ -101,7 +101,7 @@ void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
             float rel = (x - start_x) / width;
 
             ma_uint64 f = clip_start_frame + static_cast<ma_uint64>(rel * (clip_end_frame - clip_start_frame));
-            
+
             // Берём не один сэмпл, а мин/макс в радиусе ±1 пикселя
             // float min_v = 1.0f, max_v = -1.0f;
             ma_uint64 radius = std::max<ma_uint64>(1, (clip_end_frame - clip_start_frame) / width * px_step);
@@ -156,12 +156,12 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
 
     ImGui::SetNextItemAllowOverlap();  // base of the clip may be overlapped by widgets
     ImGui::CursorGuard cg(start); // setting cursor and saving previous position
-    ID_GUARD(&clip.id, ImGui::InvisibleButton("##Clickable", end-start););  
+    ID_GUARD(&clip.id, ImGui::InvisibleButton("##Clickable", end-start););
     auto [is_hovered, is_selected] = HandleClipBaseInteraction(clip);
 
     // Mimicking selectable
-    ImU32 color_base = is_selected ? style.col_clip_selected  
-                                   : style.col_clip_base;   
+    ImU32 color_base = is_selected ? style.col_clip_selected
+                                   : style.col_clip_base;
     ImU32 color_border = is_hovered ? IM_COL32(255, 255, 255, 255)
                                     : IM_COL32(255, 255, 255, 150);
 
@@ -170,7 +170,7 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
     draw_list->AddRect(start, end, color_border, 3.0f);
 
 
-    // Predifinitions 
+    // Predifinitions
     float text_pad = 2;
     float text_horizontal_pad = 10;
     float text_height = ImGui::GetFrameHeight();
@@ -204,7 +204,7 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
         }
     }
 
-    // ==================== HEADER: LABEL AND EFFECT BUTTONS ====================== 
+    // ==================== HEADER: LABEL AND EFFECT BUTTONS ======================
 
     float header_left_cursor = start.x;
     float header_right_cursor = end.x - text_horizontal_pad;
@@ -243,8 +243,8 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
         ImGui::Checkbox("Mute", &clip.muted);
         ImGui::DragFloat("Gain", &clip.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
         ImGui::DragFloat("Pan", &clip.pan, 0.01, -1, 1, "%.2f");
-        
-        float fade_in_out_sec[2] = 
+
+        float fade_in_out_sec[2] =
             {frameToSec(clip.fade_in.duration), frameToSec(clip.fade_out.duration)};
         if (ImGui::DragFloat2("Fade in/out", fade_in_out_sec, 0.01, 0, clip.getDurationSec())) {
             clip.fade_in.duration = secToFrame(fade_in_out_sec[0]);
@@ -260,7 +260,7 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
             analyzer.analyzeClip(clip);
         }
 
-        
+
         static ImVec4 color;
         color = ImGui::ColorConvertU32ToFloat4(style.col_clip_base);
 
@@ -273,7 +273,7 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
     }
 
     if (more_button) ImGui::PopID();
-    
+
     if (header_left_cursor + label_size.x < header_right_cursor) {
         draw_list->AddText(start + ImVec2{text_pad,text_pad}, style.col_clip_text, label.c_str());
         header_left_cursor += label_size.x;
@@ -299,13 +299,13 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
     // ======================= Fade in/out ======================
 
     if (clip.fade_in.duration > 0) {
-        draw_list->AddTriangleFilled(full_waveform_rect.GetTL(), full_waveform_rect.GetBL(), 
+        draw_list->AddTriangleFilled(full_waveform_rect.GetTL(), full_waveform_rect.GetBL(),
                                     full_waveform_rect.GetTL() + ImVec2{frameToPixelRel(clip.fade_in.duration), 0},
                                      col_clip_fade);
     }
 
     if (clip.fade_out.duration > 0) {
-            draw_list->AddTriangleFilled(full_waveform_rect.GetTR(), full_waveform_rect.GetBR(), 
+            draw_list->AddTriangleFilled(full_waveform_rect.GetTR(), full_waveform_rect.GetBR(),
                                     full_waveform_rect.GetTR() - ImVec2{frameToPixelRel(clip.fade_out.duration), 0},
                                      col_clip_fade);
     }
@@ -322,7 +322,7 @@ void TimelineView::DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2
     float y_end   = canvas_pos.y + canvas_size.y;
 
     int visible_major_lines = (canvas_size.x - current_rel_x) / step;
-    
+
     bool high_scale = visible_major_lines > grid_line_count_limit; // showing only major lines
 
     int minor_counter = 0;
@@ -337,7 +337,7 @@ void TimelineView::DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2
     while (current_rel_x < canvas_size.x) {
         float current_x = canvas_pos.x + current_rel_x;
 
-        if (high_scale) 
+        if (high_scale)
             draw_list->AddLine(ImVec2{current_x, y_start}, ImVec2{current_x, y_end},
                 col_grid_line, thickness_grid_line_minor);
         else {
@@ -355,7 +355,7 @@ void TimelineView::DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2
             current_rel_x += step;
             beat_idx++;
         } else {
-            if (minor_counter == 0) 
+            if (minor_counter == 0)
                 beat_idx++;
             minor_counter = (minor_counter + 1) % grid_minor_lines_per_major;
             current_rel_x += minor_step;
@@ -388,11 +388,11 @@ bool TimelineView::HandleClipTrimStretchInteraction(bool right, Clip& clip) {
     } else if (hovered) {
         if (ImGui::BeginTooltip()) {
 
-            const char *text = (alt_pressed) ? "Stretch" : "Trim"; 
+            const char *text = (alt_pressed) ? "Stretch" : "Trim";
             ImGui::Text("%s", text);
             ImGui::EndTooltip();
         }
-    } 
+    }
 
     if (clicked) {
         if (alt_pressed) {
@@ -430,19 +430,19 @@ bool TimelineView::HandleClipStretch(ClipId_t id) {
 }
 
 
-//! call immediately after clip's base invisible button 
-// @return Pair of bools: is clip hovered, is clip selected 
+//! call immediately after clip's base invisible button
+// @return Pair of bools: is clip hovered, is clip selected
 std::pair<bool, bool> TimelineView::HandleClipBaseInteraction(const Clip& clip) {
 
     bool hovered = ImGui::IsItemHovered();
     if (hovered) {
         interaction.hovered_clip_id = clip.id;
     }
-    
+
     // selecting clip on click
     //TODO: check click at the edge of the clip -> resize
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
-        PLOG_DEBUG << "Selected clip " << clip.id; 
+        PLOG_DEBUG << "Selected clip " << clip.id;
         interaction.selected_clip_id = clip.id;
         interaction.mouse_start_pos = mouse_pos;
         interaction.drag_start_frame = clip.timeline_start_frame;
@@ -484,7 +484,7 @@ bool TimelineView::HandleVerticalClipDrag(ClipId_t clip_id) {
 
     if (expected_track_idx < 0 || expected_track_idx == *current_track_idx) return false;
 
-    PLOG_DEBUG << "Moving clip " << clip_id << " from track " << *current_track_idx 
+    PLOG_DEBUG << "Moving clip " << clip_id << " from track " << *current_track_idx
                << " to track " << expected_track_idx;
 
     timeline_.moveClipToTrack(clip_id, expected_track_idx);
@@ -494,7 +494,7 @@ bool TimelineView::HandleVerticalClipDrag(ClipId_t clip_id) {
 
 /* ======================== DRAWING ======================================= */
 
-void EqualizerSettings::DrawLowpass() {
+void EqualizerView::DrawLowpass() {
     ImGui::IdGuard ig(&lowpass);
     bool modified = setPreset(LOWPASS);
     modified |= ImGui::DragFloat("Cutoff", &lowpass.cutoff, 3, MIN_FREQ, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
@@ -503,16 +503,16 @@ void EqualizerSettings::DrawLowpass() {
         calculateLowpass();
 }
 
-void EqualizerSettings::DrawHighpass() {
+void EqualizerView::DrawHighpass() {
     ImGui::IdGuard ig(&highpass);
     bool modified = setPreset(HIGHPASS);
     modified |= ImGui::DragFloat("Cutoff", &highpass.cutoff, 3, MIN_FREQ, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
     modified |= ImGui::DragFloat("Attenuation", &highpass.attenuation, 1, 0, 100, "%.2f");
-    if (modified)   
+    if (modified)
         calculateHighpass();
 }
 
-void EqualizerSettings::DrawBandpass() {
+void EqualizerView::DrawBandpass() {
     bool modified = setPreset(BANDPASS);
     ImGui::IdGuard ig(&bandpass);
     modified |= ImGui::DragFloat("Cutoff left", &bandpass.left_cutoff, 3, MIN_FREQ, bandpass.right_cutoff, "%.2f", ImGuiSliderFlags_Logarithmic);
@@ -524,7 +524,7 @@ void EqualizerSettings::DrawBandpass() {
         calculateBandpass();
 }
 
-void EqualizerSettings::DrawRejector() {
+void EqualizerView::DrawRejector() {
     bool modified = setPreset(REJECTOR);
     ImGui::IdGuard ig(&rejector);
     modified |= ImGui::DragFloat("Cutoff left", &rejector.left_cutoff, 3, MIN_FREQ, rejector.right_cutoff, "%.2f", ImGuiSliderFlags_Logarithmic);
@@ -533,11 +533,11 @@ void EqualizerSettings::DrawRejector() {
     modified |= ImGui::DragFloat("Attenuation right", &rejector.right_attenuation, 1, 0, 100, "%.2f");
     // modified |= ImGui::DragFloat("Attenuation right", &rejector.gain_db, 1, -100, 0, "%.2f");
 
-    if (modified) 
+    if (modified)
         calculateRejector();
 }
 
-void EqualizerSettings::DrawKBand() {
+void EqualizerView::DrawKBand() {
     bool modified = setPreset(KBAND);
     ImGui::IdGuard ig(&kband);
 
@@ -574,19 +574,19 @@ void EqualizerSettings::DrawKBand() {
 }
 
 /*
- Linear attenuation (db / decade) in double logarithimic scale 
+ Linear attenuation (db / decade) in double logarithimic scale
 */
 static float interpolateAttenuation(float atten, float freq, float cutoff) {
     return std::pow(freq / cutoff, -atten / 20.0f);
 }
 
-void EqualizerSettings::setResponseSize(size_t size) {
+void EqualizerView::setResponseSize(size_t size) {
     if (frequency_response.size() != size)
         frequency_response.resize(size, 1.0f);
 }
 
 
-std::vector<float> &EqualizerSettings::calculateLowpass() {
+std::vector<float> &EqualizerView::calculateLowpass() {
     size_t size = frequency_response.size();
     for (int i = 0; i < size; i++) {
         float freq = static_cast<float>(i) * MAX_FREQ / size;
@@ -599,7 +599,7 @@ std::vector<float> &EqualizerSettings::calculateLowpass() {
     return frequency_response;
 }
 
-std::vector<float> &EqualizerSettings::calculateHighpass() {
+std::vector<float> &EqualizerView::calculateHighpass() {
     size_t size = frequency_response.size();
     for (int i = 0; i < size; i++) {
         float freq = static_cast<float>(i) * MAX_FREQ / size;
@@ -612,16 +612,16 @@ std::vector<float> &EqualizerSettings::calculateHighpass() {
     return frequency_response;
 }
 
-std::vector<float> &EqualizerSettings::calculateBandpass() {
+std::vector<float> &EqualizerView::calculateBandpass() {
     size_t size = frequency_response.size();
     for (int i = 0; i < size; i++) {
         float freq = static_cast<float>(i) * MAX_FREQ / size;
         if (freq < bandpass.left_cutoff) {
-            frequency_response[i] = 
+            frequency_response[i] =
                 interpolateAttenuation(-bandpass.left_attenuation, freq, bandpass.left_cutoff);
-        } else 
+        } else
         if (freq > bandpass.right_cutoff) {
-            frequency_response[i] = 
+            frequency_response[i] =
                 interpolateAttenuation(bandpass.right_attenuation, freq, bandpass.right_cutoff);
         } else {
             frequency_response[i] = 1;
@@ -630,7 +630,7 @@ std::vector<float> &EqualizerSettings::calculateBandpass() {
     return frequency_response;
 }
 
-std::vector<float> &EqualizerSettings::calculateRejector() {
+std::vector<float> &EqualizerView::calculateRejector() {
 
     size_t size = frequency_response.size();
     for (int i = 0; i < size; i++) {
@@ -641,13 +641,13 @@ std::vector<float> &EqualizerSettings::calculateRejector() {
             frequency_response[i] = std::min(
                 interpolateAttenuation(rejector.left_attenuation, freq, rejector.left_cutoff),
                 interpolateAttenuation(-rejector.right_attenuation, freq, rejector.right_cutoff));
-                
+
         }
     }
     return frequency_response;
 }
 
-std::vector<float> &EqualizerSettings::calculateKBand() {
+std::vector<float> &EqualizerView::calculateKBand() {
 
     int left_band_idx = 0;
     float left_band_lfreq = kband.bands[left_band_idx].freq_log;
@@ -663,7 +663,7 @@ std::vector<float> &EqualizerSettings::calculateKBand() {
 
         if (log_freq > right_band_lfreq) {
             left_band_idx++;
-            
+
             left_band_lfreq = kband.bands[left_band_idx].freq_log;
             right_band_lfreq = kband.bands[left_band_idx + 1].freq_log;
 
@@ -679,7 +679,7 @@ std::vector<float> &EqualizerSettings::calculateKBand() {
 
 }
 
-void TimelineView::DrawEqSettings(bool *enable, Equalizer &eq, EqualizerSettings &settings) {
+void TimelineView::DrawEqSettings(bool *enable, Equalizer &eq, EqualizerView &settings) {
     ImGui::Checkbox("On", enable);
 
     settings.setResponseSize(eq.getSize());
@@ -711,16 +711,16 @@ void TimelineView::DrawEqSettings(bool *enable, Equalizer &eq, EqualizerSettings
     }
 
     ImGui::Text("Response graph");
-    float max_value = 
+    float max_value =
         std::max(1.0f, *std::max_element(settings.frequency_response.begin(), settings.frequency_response.end()));
     ImGui::PlotLines("##Response", settings.frequency_response.data(), settings.frequency_response.size(),
         0, nullptr, 0, max_value, ImVec2(0, ImGui::GetFrameHeight() * 3));
     if (ImGui::Button("Apply")) {
         settings.saveAppliedPreset();
-        
+
         eq.setFreqResponse(settings.frequency_response);
     }
-    
+
 
 }
 
@@ -742,7 +742,7 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
 
     // const float mult = 0.99;
     ImGui::PushID(&track);
-    ImGui::BeginChild("Track_canvas", ImVec2(0, track_height), 0, 
+    ImGui::BeginChild("Track_canvas", ImVec2(0, track_height), 0,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -754,7 +754,7 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
 
     // track name
     ID_GUARD(&track.id, ImGui::InputText("", &style.name); );
-    
+
     const char * const EQ_POPUP = "EQ_POPUP";
     const char * const PITCH_POPUP = "PITCH_POPUP";
     ID_GUARD(&track.enable_eq,
@@ -763,7 +763,7 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
             ImGui::OpenPopup(EQ_POPUP);
 
         // ImGui::SameLine();
-        // if (ImGui::Button("Pitch")) 
+        // if (ImGui::Button("Pitch"))
         //     ImGui::OpenPopup(PITCH_POPUP);
 
         if (ImGui::BeginPopup(EQ_POPUP)) {
@@ -777,20 +777,20 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
         //     ImGui::EndPopup();
         // }
     );
-    
+
     ImGui::SameLine();
     // mute
     ID_GUARD(&track.mute, ImGui::Checkbox("Mute", &track.mute););
-    
+
 
     // gain
-    
+
     ID_GUARD(&track.gain_db,
         ImGui::DragFloat("Gain", &track.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
     );
 
 
-    ID_GUARD(&track.rendering_buffer, 
+    ID_GUARD(&track.rendering_buffer,
         if (ImGui::Button("FFT Spectr")) {
             analyzer.subscribeToBuffer(&track.rendering_buffer);
         }
@@ -818,7 +818,7 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
 
 }
 
-void TimelineView::DrawPlayHead(ImDrawList *draw_list, 
+void TimelineView::DrawPlayHead(ImDrawList *draw_list,
                                 ImVec2 canvas_pos, ImVec2 size) {
 
     ma_uint64 playhead_frame = timeline_.playhead_frame.load();
@@ -827,7 +827,7 @@ void TimelineView::DrawPlayHead(ImDrawList *draw_list,
         draw_list->AddLine(ImVec2(playhead_x, canvas_pos.y),
                           ImVec2(playhead_x, canvas_pos.y + size.y),
                           col_playhead, 2.0f);
-    }   
+    }
 }
 
 
@@ -844,7 +844,7 @@ void TimelineView::removeClipFromTimeline(ClipId_t id) {
 }
 
 ClipId_t TimelineView::addClipToTimeline(const Clip& clip, int track_idx, std::optional<ClipView> style) {
-    PLOG_DEBUG << "Adding clip " << clip.id << "to track " << track_idx; 
+    PLOG_DEBUG << "Adding clip " << clip.id << "to track " << track_idx;
     ClipId_t id = timeline_.addClip(clip, track_idx);
     if (id == CLIP_NONE) return id;
 
@@ -854,7 +854,7 @@ ClipId_t TimelineView::addClipToTimeline(const Clip& clip, int track_idx, std::o
     } else {
         clip_view[id] = *style;
     }
-    
+
     return id;
 }
 
@@ -867,7 +867,7 @@ void TimelineView::copyToClipboard(ClipId_t id) {
     Clip *clip = timeline_.getClipById(id);
     if (!clip) return;
 
-    clipboard.data = clip->copy(); 
+    clipboard.data = clip->copy();
     clipboard.style = getClipView(id);
 }
 
@@ -878,7 +878,7 @@ void TimelineView::cutToClipboard(ClipId_t id) {
     if (!clip) return;
 
     // copying without changing id
-    clipboard.data = *clip; 
+    clipboard.data = *clip;
     clipboard.style = getClipView(id);
     clip_view.erase(id);
 
@@ -904,7 +904,7 @@ void TimelineView::HandleInteractions(PlaybackController& playback) {
     if (clicked_on_bg) {
         if (interaction.selected_clip_id != CLIP_NONE) {
             PLOG_DEBUG << "Unselected clip " << interaction.selected_clip_id;
-        }   
+        }
         interaction.selected_clip_id = CLIP_NONE;
     }
 
@@ -924,9 +924,9 @@ void TimelineView::HandleInteractions(PlaybackController& playback) {
     }
 
     // 3 Dragging handling
-    if (interaction.selected_clip_id != CLIP_NONE && 
+    if (interaction.selected_clip_id != CLIP_NONE &&
         interaction.mode == TimelineInteraction::Mode::DraggingClip &&
-        ImGui::IsMouseDragging(ImGuiMouseButton_Left)) 
+        ImGui::IsMouseDragging(ImGuiMouseButton_Left))
     {
         ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
         if (HandleHorizontalClipDrag(interaction.selected_clip_id, delta)) {
@@ -935,7 +935,7 @@ void TimelineView::HandleInteractions(PlaybackController& playback) {
 
         HandleVerticalClipDrag(interaction.selected_clip_id);
 
-    } 
+    }
 
     // 3.1 Clip trimming
 
@@ -955,7 +955,7 @@ void TimelineView::HandleInteractions(PlaybackController& playback) {
 
     // 4 Clip deletion
     if (interaction.selected_clip_id != CLIP_NONE &&
-        ImGui::IsKeyPressed(ImGuiKey_Delete)) 
+        ImGui::IsKeyPressed(ImGuiKey_Delete))
     {
         removeClipFromTimeline(interaction.selected_clip_id);
     }
@@ -977,7 +977,7 @@ void TimelineView::HandleInteractions(PlaybackController& playback) {
         }
 
         std::optional<Clip> new_clip = selected->cut(timeline_.playhead_frame);
-        if (new_clip) 
+        if (new_clip)
             addClipToTimeline(*new_clip, clip_loc->track_idx, getClipView(*selected));
     }
 
@@ -1040,7 +1040,7 @@ void TimelineView::DrawTimeline(PlaybackController& playback) {
 
     // ImGui::SetNextWindowContentSize(ImVec2(1e6, 0));
     // Timeline over all available space
-    ImGui::BeginChild("Timeline_canvas", ImVec2(0, 0), ImGuiChildFlags_Borders, 
+    ImGui::BeginChild("Timeline_canvas", ImVec2(0, 0), ImGuiChildFlags_Borders,
         ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_HorizontalScrollbar);
 
     // === 0. Updating drawing state variables
@@ -1060,7 +1060,7 @@ void TimelineView::DrawTimeline(PlaybackController& playback) {
     // Invisible button that detects clicks on empty space
     {
         ImGui::CursorGuard cg(global_field_pos); // setting cursor and saving previous position
-        ImGui::SetNextItemAllowOverlap();  
+        ImGui::SetNextItemAllowOverlap();
         ImGui::InvisibleButton("##Timeline_background", field_size);
         clicked_on_bg = ImGui::IsItemClicked(ImGuiMouseButton_Left);
         hovered_on_bg = ImGui::IsItemHovered();
@@ -1086,7 +1086,7 @@ void TimelineView::DrawTimeline(PlaybackController& playback) {
     // === 2. Drawing time grid ===
     DrawTimeGrid(draw_list, global_field_pos, field_size);
     // DrawTimeGrid(draw_list, field_pos, field_size);
-    
+
 
     // === 3. Курсор воспроизведения ===
     DrawPlayHead(draw_list, global_field_pos, field_size);
@@ -1118,7 +1118,7 @@ void TimelineView::DrawTimeline(PlaybackController& playback) {
             // Обработка полученных данных
             auto loc = mousePosToTrackAndFrame();
 
-            ClipId_t clip_id = 
+            ClipId_t clip_id =
                 addClipToTimeline(Clip(data, loc.second), loc.first);
 
         }

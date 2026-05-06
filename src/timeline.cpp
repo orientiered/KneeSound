@@ -10,7 +10,7 @@ PeakCache::PeakCache(ma_uint64 block_size, const std::vector<float> &samples, ma
     ma_uint64 duration_frames = samples.size() / channels;
     size_t num_blocks = (duration_frames + block_size - 1) / block_size;
     peaks.resize(num_blocks);
-    
+
     for (size_t b = 0; b < num_blocks; ++b) {
         ma_uint64 start = b * block_size;
         ma_uint64 end = std::min(start + block_size, duration_frames);
@@ -70,7 +70,7 @@ std::ostream& operator<<(std::ostream& os, const Clip& clip) {
        << "audio source " << clip.source << "\n"
        << "Source boundaries: [" << clip.source_start_frame << ", " << clip.source_end_frame << ")\n"
        << "Timeline start frame: " << clip.timeline_start_frame << "\n"
-       << "Gain: " << clip.gain_db << " Muted: " << clip.muted << " Pan: " << clip.pan; 
+       << "Gain: " << clip.gain_db << " Muted: " << clip.muted << " Pan: " << clip.pan;
     return os;
 }
 
@@ -105,16 +105,16 @@ PeakCache::min_max Clip::getPeak(ma_int64 clip_start_frame, ma_int64 clip_end_fr
 
 
 
-// Renders frames to out array, ADDITIVELY 
+// Renders frames to out array, ADDITIVELY
 // Doesn't write zeros
 void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, ma_uint64 frame_count) {
 
     if (muted) return;
 
-    ma_int64 out_start_i = (start_frame >= timeline_start_frame) ? 
+    ma_int64 out_start_i = (start_frame >= timeline_start_frame) ?
                             0 : timeline_start_frame - start_frame;
-    
-    ma_int64 out_end_i = ((start_frame + frame_count) > getTimelineEndFrame()) ? 
+
+    ma_int64 out_end_i = ((start_frame + frame_count) > getTimelineEndFrame()) ?
                             getTimelineEndFrame() - start_frame :
                             frame_count;
 
@@ -132,11 +132,11 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, 
 
     float gain = dbToGain(gain_db);
     PLOG_VERBOSE_IF(g_debug_flags.callback_logs) <<
-        "Rendering clip " << id << ": si " << out_start_i << " ei " << out_end_i << " srci " << clip_i << 
+        "Rendering clip " << id << ": si " << out_start_i << " ei " << out_end_i << " srci " << clip_i <<
         " gain " << gain;
 
     auto getFadeGain = [&](ma_int64 clip_frame) {
-        return fade_in.getGain(0, clip_frame) * 
+        return fade_in.getGain(0, clip_frame) *
                fade_out.getGain(getDurationFrames(), clip_frame);
     };
 
@@ -147,11 +147,11 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, 
         float left = in[0], right = in[1];
 
         float pan_left  = (pan <= 0) ? 1 : (1 - pan);
-        float pan_right = (pan >= 0) ? 1 : (1 + pan); 
+        float pan_right = (pan >= 0) ? 1 : (1 + pan);
         float fade_gain = getFadeGain(clip_frame);
 
         float out_left  = left  * gain * pan_left * fade_gain;
-        float out_right = right * gain * pan_right * fade_gain; 
+        float out_right = right * gain * pan_right * fade_gain;
 
         out[0] = out_left;
         out[1] = out_right;
@@ -162,29 +162,29 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, 
         process_frame(clip_i, &out[out_i*INNER_CHANNELS]);
 
     }
-    
+
 }
 
 bool Clip::stretch(bool right, ma_int64 timeline_pos) {
-    
+
     double old_src_duration = static_cast<double>(source_end_frame - source_start_frame);
 
     if (!right) {
         ma_int64 new_duration = getTimelineEndFrame() - timeline_pos;
         double new_stretch = static_cast<double>(new_duration) / old_src_duration;
-        
+
         if (new_stretch > 0) {
             double new_playback_speed = 1/new_stretch;
 
             bool applied = new_playback_speed == setPlaybackSpeed(new_playback_speed);
-            if (applied) 
+            if (applied)
                 timeline_start_frame = timeline_pos;
             return applied;
         }
     } else {
         ma_int64 new_duration = timeline_pos - timeline_start_frame;
         double new_stretch = static_cast<double>(new_duration) / old_src_duration;
-        
+
         if (new_stretch > 0) {
             double new_playback_speed = 1/new_stretch;
 
@@ -210,7 +210,7 @@ bool Clip::trim(bool right, ma_int64 timeline_pos) {
 
     } else {
         //trim from right
-        if (timeline_pos > timeline_start_frame && 
+        if (timeline_pos > timeline_start_frame &&
             timeline_pos - getTimelineEndFrame() <= avaialable_right) {
             source_end_frame = clipFrameToSrcFrame(timeline_pos - timeline_start_frame);
             return true;
@@ -245,7 +245,7 @@ const std::vector<audio_sample_t> &Track::renderBlock(ma_uint64 start_frame) {
 
     // clearing buffer and allocating memory if needed
     std::vector<audio_sample_t> &buf = rendering_buffer.writerGetBuffer(render_block_size*INNER_CHANNELS);
-    
+
     // early out when track is muted
     if (mute) return rendering_buffer.writerSentReadyBuffer();
 
@@ -262,9 +262,9 @@ const std::vector<audio_sample_t> &Track::renderBlock(ma_uint64 start_frame) {
         float left = in_out[0], right = in_out[1];
 
         float pan_left  = (pan <= 0) ? 1 : (1 - pan);
-        float pan_right = (pan >= 0) ? 1 : (1 + pan); 
+        float pan_right = (pan >= 0) ? 1 : (1 + pan);
         float out_left  = left  * gain * pan_left;
-        float out_right = right * gain * pan_right; 
+        float out_right = right * gain * pan_right;
 
         in_out[0] = out_left;
         in_out[1] = out_right;
@@ -300,7 +300,7 @@ const std::vector<audio_sample_t>& TimeLine::renderBlock(ma_uint64 start_frame) 
     //TODO: INVALIDATE CACHE IF START_FRAME != NEXT EXPECTED FRAME
     const size_t frame_count = render_block_size;
 
-    
+
 
     for (int track_idx = 0; track_idx < tracks.size(); track_idx++) {
         Track &track = getTrack(track_idx);
@@ -308,20 +308,20 @@ const std::vector<audio_sample_t>& TimeLine::renderBlock(ma_uint64 start_frame) 
 
         // Pre-fill if rendering non-sequantially
         if (start_frame != expected_frame) {
-            for (int pre_fill_idx = 0; pre_fill_idx < latency; pre_fill_idx++) {
-                track.renderBlock(start_frame + latency * pre_fill_idx * render_block_size);
+            for (int pre_fill_idx = 0; pre_fill_idx * render_block_size < latency; pre_fill_idx++) {
+                track.renderBlock(start_frame + latency * pre_fill_idx);
             }
         }
 
-        const auto &track_buf = track.renderBlock(start_frame + latency * render_block_size);
+        const auto &track_buf = track.renderBlock(start_frame + latency);
 
         for (int i = 0; i < frame_count * INNER_CHANNELS; i++) {
             buf[i] += track_buf[i] * gain;
             // PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "timeline_amp: "<< buf[i] <<
                                                             // " track_amp: " << track_buf[i];
-        }   
+        }
     }
-    
+
     expected_frame = start_frame + frame_count;
 
     return rendering_buffer.writerSentReadyBuffer();
@@ -340,7 +340,7 @@ void TimeLine::renderFrames(audio_sample_t *out, ma_uint64 start_frame, ma_uint6
             cur_frame += render_block_size;
 
             PLOG_VERBOSE_IF(g_debug_flags.block_adapter_logs) << "Pushing " << render_block_size << "frames";
-            block_adapter.push_bulk(buffer.data(), render_block_size * INNER_CHANNELS);    
+            block_adapter.push_bulk(buffer.data(), render_block_size * INNER_CHANNELS);
             PLOG_VERBOSE_IF(g_debug_flags.block_adapter_logs) << "Size = " << block_adapter.size() / INNER_CHANNELS << "frames";
         }
 
@@ -364,11 +364,11 @@ bool TimeLine::isValidTrackId(TrackId_t id) {
 }
 
 Track *TimeLine::getTrackById(TrackId_t id) {
-    auto it = std::find_if(tracks.begin(), tracks.end(), 
-                        [&id](const Track &track) { 
+    auto it = std::find_if(tracks.begin(), tracks.end(),
+                        [&id](const Track &track) {
                             return track.id == id;
                         });
-    
+
     return (it == tracks.end()) ? nullptr : &*it;
 }
 
@@ -403,7 +403,7 @@ void TimeLine::removeClipByLoc(ClipLoc loc) {
         return;
     }
 
-    // Synchonized deletion
+    // Synchronized deletion
     mtx.lock();
 
     std::vector<Clip> &clips = getTrack(loc.track_idx).clips;
@@ -455,4 +455,3 @@ ClipId_t TimeLine::addClip(const Clip& clip, int track_idx) {
 
 
 }
-

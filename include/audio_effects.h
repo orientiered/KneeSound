@@ -5,6 +5,7 @@
 #include "kiss_fftr.h"
 #include "fft_utils.h"
 #include "algorithm"
+#include <cmath>
 #include <functional>
 
 namespace waves {
@@ -25,10 +26,10 @@ private:
     size_t channels_;
 
     // overlap and previous are stored sequentially, not interleaved
-    std::vector<audio_sample_t> overlap_add_;       
+    std::vector<audio_sample_t> overlap_add_;
     std::vector<audio_sample_t> previous_block_;
 
-    std::vector<audio_sample_t> time_data; ///< array for temporary calculations 
+    std::vector<audio_sample_t> time_data; ///< array for temporary calculations
     std::vector<kiss_fft_cpx>   freq_data; ///< array for temporary calculations
 
 public:
@@ -40,7 +41,7 @@ public:
         time_data(2*block_size, 0.0f),
         freq_data(block_size + 1) {}
 
-    size_t getLatency() const noexcept { return 1; } ///< Latency in blocks
+    size_t getLatency() const noexcept { return hop_size_; } ///< Latency in samples
     size_t getBlockSize() const noexcept { return hop_size_; }
     size_t getFreqDataSize() const noexcept { return hop_size_ + 1; }
 
@@ -54,7 +55,7 @@ public:
         for (size_t ch_idx = 0; ch_idx < channels_; ch_idx++) {
 
             prepareTimeData(inout, ch_idx);
-    
+
             wfftr_.forward(time_data.data(), freq_data.data());
 
             processor(freq_data);
@@ -66,7 +67,7 @@ public:
         }
 
     }
-    
+
 private:
     void prepareTimeData(audio_sample_t *in, size_t ch_idx);
     void applyOverlap(audio_sample_t *out, size_t ch_idx);
@@ -74,7 +75,7 @@ private:
 
 /* ========================== Interface for freq domain effect ========== */
 
-// using FreqEffectCallback_t = 
+// using FreqEffectCallback_t =
 class IFreqEffect {
 public:
     virtual void operator()(std::vector<kiss_fft_cpx> &freq_data) = 0;
@@ -85,11 +86,11 @@ public:
 class Equalizer: IFreqEffect {
 private:
     std::vector<float> freq_response_;      ///< Response curve used in processing
-    std::vector<float> new_freq_response_;  ///< Used for asynchronous response change 
+    std::vector<float> new_freq_response_;  ///< Used for asynchronous response change
     bool freq_response_updated_ = true;
 public:
     Equalizer(size_t block_size):
-        freq_response_(block_size + 1, 1.0f) {} 
+        freq_response_(block_size + 1, 1.0f) {}
 
     size_t getSize() const noexcept { return freq_response_.size(); }
 
@@ -119,8 +120,91 @@ public:
     ~Equalizer() override = default;
 };
 
+class ITimeEffect {
+public:
+    virtual void operator()(const audio_sample_t* input, audio_sample_t* output, size_t numSamples) = 0;
+    virtual ~ITimeEffect() = default;
 
-struct EqualizerSettings {
+};
+
+class BiquadFilter : public ITimeEffect {
+private:
+    // Filter coeffs
+    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
+    float a1 = 0.0f, a2 = 0.0f;
+
+    // Filter state
+    float s1 = 0.0f, s2 = 0.0f;
+public:
+    void setCoefficients(float f1, float f2, float f3, float g1, float g2) {
+        b0 = f1; b1 = f2; b2 = f3;
+        a1 = g1; a2 = g2;
+    }
+
+    // One sample processing, Transposed direct form 2
+    inline float process(float x) {
+        float y = b0 * x + s1;
+        s1 = b1 * x + s2 - a1 * y;
+        s2 = b2 * x - a2 * y;
+        return y;
+    }
+
+    ~BiquadFilter() override = default;
+    virtual void operator()(const audio_sample_t* input, audio_sample_t* output, size_t numSamples) override {
+        for (size_t i = 0; i < numSamples; ++i) {
+            output[i] = process(input[i]);
+        }
+    }
+};
+
+
+struct BiquadSettings {
+    struct Coeffs {
+        float f1, f2, f3; // numerator
+        float g1, g2;     // denumerator (with a0=1, normalized form)
+
+        Coeffs(float b1, float b2, float b3, float a1, float a2):
+            f1(b1), f2(b2), f3(b3), g1(a1), g2(a2) {}
+        // With normalization
+        Coeffs(double b1, double b2, double b3, double a0, double a1, double a2):
+            f1(b1/a0), f2(b2/a0), f3(b3/a0), g1(a1/a0), g2(a2/a0) {}
+    };
+
+private:
+    // fc = центральная частота, Q = добротность, gainDb = усиление в дБ
+    // fs = частота дискретизации
+    // src: https://webaudio.github.io/Audio-EQ-Cookbook/audio-eq-cookbook.html
+    struct RBJ_Params {
+        double A;
+        double w0;
+        double cos_w0, sin_w0;
+        double alpha;
+
+        RBJ_Params(double fc, double Q, double gainDb, double fs) {
+            A  = std::pow(10.0, gainDb / 40.0);
+            w0 = 2.0 * M_PI * fc / fs;
+            cos_w0 = std::cos(w0);
+            sin_w0 = std::sin(w0);
+            alpha  = sin_w0 / (2.0 * Q);
+        }
+    };
+
+public:
+    Coeffs makeLPF(double fc, double Q, double gainDb, double fs);
+
+    Coeffs makeHPF(double fc, double Q, double gainDb, double fs);
+
+    Coeffs makeBPF(double fc, double Q, double gainDb, double fs);
+
+    Coeffs makeNotch(double fc, double Q, double gainDb, double fs);
+
+    Coeffs makePeaking(double fc, double Q, double gainDb, double fs);
+
+    std::vector<float> frequency_response;
+
+};
+
+struct EqualizerView {
 private:
     enum Preset {
         NONE = -1,
@@ -168,7 +252,7 @@ private:
         std::vector<Band> bands;
         int band_count = 5;
     } kband;
-    
+
     const float MAX_FREQ = static_cast<float>(INNER_SAMPLE_RATE) / 2;
     const float MIN_FREQ = 20.0f;
     float logFreqToNormal(float freq_log) {
@@ -263,7 +347,7 @@ struct Fade {
                 return std::clamp(static_cast<float>(pivot - frame) / duration, 0.f, 1.f);
             } break;
             default: return 1.0f;
-        }  
+        }
     }
 };
 
