@@ -396,10 +396,12 @@ bool TimelineView::HandleClipTrimStretchInteraction(bool right, Clip& clip) {
 
     if (clicked) {
         if (alt_pressed) {
+            PLOG_DEBUG << "Stretch action start on clip " << clip.id;
             interaction.stretched_clip_id = clip.id;
             interaction.stretching_right = right;
             interaction.mode = TimelineInteraction::Mode::StretchingClip;
         } else {
+            PLOG_DEBUG << "Trim action start on clip " << clip.id;
             interaction.trimmed_clip_id = clip.id;
             interaction.trimming_right = right;
             interaction.mode = TimelineInteraction::Mode::TrimmingClip;

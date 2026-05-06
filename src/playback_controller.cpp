@@ -1,9 +1,12 @@
 #include "playback_controller.h"
+#include "buffer_utils.h"
+#include "common.h"
+#include "editor.h"
 
 namespace waves {
 
 void PlaybackController::getFramesFromTimeline(void *out, ma_uint32 frameCount) {
-    PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << 
+    PLOG_VERBOSE_IF(g_debug_flags.callback_logs) <<
         "timeline callback: writing " << frameCount << " frames to " << out;
 
     timeline.renderFrames(reinterpret_cast<audio_sample_t*>(out), timeline.playhead_frame, frameCount);
@@ -11,24 +14,24 @@ void PlaybackController::getFramesFromTimeline(void *out, ma_uint32 frameCount) 
     timeline.playhead_frame.fetch_add(frameCount);
 }
 
-void PlaybackController::getFramesFromPool(void* out, ma_uint32 frameCount) { 
-    PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << 
+void PlaybackController::getFramesFromPool(void* out, ma_uint32 frameCount) {
+    PLOG_VERBOSE_IF(g_debug_flags.callback_logs) <<
         "pool callback: writing " << frameCount << " frames to " << out;
 
-    const std::vector<float>& pcmData = (*currentTrack)->pcmData;
-    const size_t trackLen = pcmData.size();
-    const int64_t trackLenInFrames = trackLen / INNER_CHANNELS;
+    AudioBuffer &buf = (*currentTrack)->pcmData;
 
-    auto startIt = (INNER_CHANNELS*currentFrame >= trackLen ) ?
-                    pcmData.end() :
-                    pcmData.begin() + INNER_CHANNELS*currentFrame;
-    auto endIt = (INNER_CHANNELS*(currentFrame + frameCount) >= trackLen) ?
-                    pcmData.end() :
-                    pcmData.begin() + INNER_CHANNELS*(currentFrame + frameCount);
+    const int64_t trackLen = buf.getFrameCount();
 
-    std::copy(startIt, endIt, reinterpret_cast<float*>(out));
-    
-    currentFrame = std::min(trackLenInFrames, currentFrame +frameCount);
+    int64_t start_idx = std::min(currentFrame, trackLen);
+    int64_t end_idx   = std::min(currentFrame + frameCount, trackLen);
+
+    audio_sample_t *fout = reinterpret_cast<audio_sample_t *>(out);
+    for (int track_frame = start_idx, out_frame = 0; track_frame < end_idx; track_frame++, out_frame++) {
+       for (int ch = 0; ch < INNER_CHANNELS; ch++) {
+           fout[out_frame * INNER_CHANNELS + ch] = buf[ch][track_frame];
+       }
+   }
+    currentFrame = std::min(trackLen, currentFrame +frameCount);
 }
 
 }

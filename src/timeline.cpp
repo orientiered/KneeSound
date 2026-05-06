@@ -1,13 +1,16 @@
 #include "timeline.h"
+#include "buffer_utils.h"
+#include "common.h"
+#include "editor.h"
 
 namespace waves {
 
 /* ================= Peak caches ================ */
 
-PeakCache::PeakCache(ma_uint64 block_size, const std::vector<float> &samples, ma_uint64 channels) {
+PeakCache::PeakCache(ma_uint64 block_size, const AudioBuffer &samples) {
     block_size_ = block_size;
 
-    ma_uint64 duration_frames = samples.size() / channels;
+    ma_uint64 duration_frames = samples.getFrameCount();
     size_t num_blocks = (duration_frames + block_size - 1) / block_size;
     peaks.resize(num_blocks);
 
@@ -15,9 +18,7 @@ PeakCache::PeakCache(ma_uint64 block_size, const std::vector<float> &samples, ma
         ma_uint64 start = b * block_size;
         ma_uint64 end = std::min(start + block_size, duration_frames);
         for (ma_uint64 i = start; i < end; ++i) {
-            float s = interleavedToMono(&samples[i * channels], channels);
-
-            peaks[b].update(s);
+            peaks[b].update(samples.getMeanSample(i));
         }
     }
 }
@@ -74,26 +75,20 @@ std::ostream& operator<<(std::ostream& os, const Clip& clip) {
     return os;
 }
 
-
-void Clip::getClipFrameInterpolated(audio_sample_t *out, double src_frame) const {
+audio_sample_t Clip::getClipFrameInterpolated(uint32_t channel, double src_frame) const {
     ma_int64 left_src = std::min(source_end_frame-1, static_cast<ma_int64>(std::floor(src_frame)));
 
-    audio_sample_t *left = getClipSrcFrame(left_src);
-    audio_sample_t *right = getClipSrcFrame(std::min(source_end_frame-1, left_src + 1));
+    audio_sample_t left = getClipSrcFrame(channel, left_src);
+    audio_sample_t right = getClipSrcFrame(channel, std::min(source_end_frame-1, left_src + 1));
 
     float p = src_frame - left_src;
 
-    #pragma unroll
-    for (int i = 0; i < INNER_CHANNELS; i++) {
-        out[i] = left[i] * (1-p) + right[i] * p;
-    }
+    return left * (1 - p) + right * p;
 }
 
 audio_sample_t Clip::getMonoClipFrame(ma_int64 clip_frame) const {
-    float sample[INNER_CHANNELS];
-    getClipFrameInterpolated(sample , clipFrameToSrcFrame(clip_frame));
-
-    return interleavedToMono(sample, INNER_CHANNELS);
+    double src_frame = clipFrameToSrcFrame(clip_frame);
+    return (getClipFrameInterpolated(0, src_frame) + getClipFrameInterpolated(1, src_frame)) * 0.5;
 }
 
 PeakCache::min_max Clip::getPeak(ma_int64 clip_start_frame, ma_int64 clip_end_frame) const {
@@ -107,7 +102,7 @@ PeakCache::min_max Clip::getPeak(ma_int64 clip_start_frame, ma_int64 clip_end_fr
 
 // Renders frames to out array, ADDITIVELY
 // Doesn't write zeros
-void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, ma_uint64 frame_count) {
+void Clip::renderFrames(AudioBuffer &out, ma_int64 start_frame, ma_uint64 frame_count) {
 
     if (muted) return;
 
@@ -126,13 +121,11 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, 
         PLOG_ERROR << *this << "\n"
                    << out_start_i << " " << out_end_i << "\n";
     }
-    ma_uint64 clip_i = *clip_i_opt;
-
-
+    ma_uint64 start_clip_frame = *clip_i_opt;
 
     float gain = dbToGain(gain_db);
     PLOG_VERBOSE_IF(g_debug_flags.callback_logs) <<
-        "Rendering clip " << id << ": si " << out_start_i << " ei " << out_end_i << " srci " << clip_i <<
+        "Rendering clip " << id << ": si " << out_start_i << " ei " << out_end_i << " srci " << start_clip_frame <<
         " gain " << gain;
 
     auto getFadeGain = [&](ma_int64 clip_frame) {
@@ -140,27 +133,27 @@ void Clip::renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, 
                fade_out.getGain(getDurationFrames(), clip_frame);
     };
 
-    auto process_frame = [&](ma_int64 clip_frame, float *out) {
-        float in[2];
-        getClipFrameInterpolated(in, clipFrameToSrcFrame(clip_frame));
+    float pan_left  = (pan <= 0) ? 1 : (1 - pan);
+    float pan_right = (pan >= 0) ? 1 : (1 + pan);
 
-        float left = in[0], right = in[1];
+    auto process_frame = [&](size_t ch, ma_int64 clip_frame) -> audio_sample_t {
 
-        float pan_left  = (pan <= 0) ? 1 : (1 - pan);
-        float pan_right = (pan >= 0) ? 1 : (1 + pan);
+        float s = getClipFrameInterpolated(ch, clipFrameToSrcFrame(clip_frame));
+
         float fade_gain = getFadeGain(clip_frame);
+        float pan = (ch == 0) ? pan_left : pan_right;
 
-        float out_left  = left  * gain * pan_left * fade_gain;
-        float out_right = right * gain * pan_right * fade_gain;
-
-        out[0] = out_left;
-        out[1] = out_right;
+        return s * fade_gain * gain * pan;
     };
 
-    for (ma_uint64 out_i = out_start_i; out_i < out_end_i; out_i++, clip_i++) {
-        assert(INNER_CHANNELS == 2);
-        process_frame(clip_i, &out[out_i*INNER_CHANNELS]);
-
+    assert(INNER_CHANNELS == 2);
+    for (size_t ch = 0; ch < INNER_CHANNELS; ch++) {
+        audio_sample_t *ch_out = out.getChannel(ch);
+        for (ma_uint64 out_i = out_start_i, clip_frame = start_clip_frame;
+                       out_i < out_end_i;
+                       out_i++, clip_frame++) {
+            ch_out[out_i] += process_frame(ch, clip_frame);
+        }
     }
 
 }
@@ -241,10 +234,10 @@ std::optional<Clip> Clip::cut(ma_int64 timeline_pos) {
 
 /* ================= Track    =================== */
 
-const std::vector<audio_sample_t> &Track::renderBlock(ma_uint64 start_frame) {
+const AudioBuffer& Track::renderBlock(ma_uint64 start_frame) {
 
     // clearing buffer and allocating memory if needed
-    std::vector<audio_sample_t> &buf = rendering_buffer.writerGetBuffer(render_block_size*INNER_CHANNELS);
+    AudioBuffer& buf = rendering_buffer.writerGetBuffer(render_block_size, INNER_CHANNELS);
 
     // early out when track is muted
     if (mute) return rendering_buffer.writerSentReadyBuffer();
@@ -258,26 +251,24 @@ const std::vector<audio_sample_t> &Track::renderBlock(ma_uint64 start_frame) {
     // applying effects (gain + pan)
     float gain = dbToGain(gain_db);
 
-    auto process_frame = [&](float *in_out) {
-        float left = in_out[0], right = in_out[1];
+    float pan_left  = (pan <= 0) ? 1 : (1 - pan);
+    float pan_right = (pan >= 0) ? 1 : (1 + pan);
 
-        float pan_left  = (pan <= 0) ? 1 : (1 - pan);
-        float pan_right = (pan >= 0) ? 1 : (1 + pan);
-        float out_left  = left  * gain * pan_left;
-        float out_right = right * gain * pan_right;
+    auto process_frame = [&](size_t ch, audio_sample_t sample) -> audio_sample_t {
+        float pan = (ch == 0) ? pan_left : pan_right;
 
-        in_out[0] = out_left;
-        in_out[1] = out_right;
+        return sample * gain * pan;
     };
 
-    for (ma_uint64 idx = 0; idx < render_block_size; idx++) {
-        assert(INNER_CHANNELS == 2);
-        process_frame(&buf[idx*INNER_CHANNELS]);
-
+    for (size_t ch = 0; ch < INNER_CHANNELS; ch++) {
+        audio_sample_t *ch_out = buf.getChannel(ch);
+        for (ma_uint64 idx = 0; idx < render_block_size; idx++) {
+            ch_out[idx] = process_frame(ch, ch_out[idx]);
+        }
     }
 
     if (enable_eq)
-        fft_pipeline.processBlock(buf.data(), equalizer);
+        fft_pipeline.processBlock(buf, equalizer);
     // if (enable_eq)
     //     fft_pipeline.processBlock(buf.data(), pitch);
 
@@ -290,11 +281,11 @@ size_t Track::getLatency() {
 
 /* ================= Timeline =================== */
 
-const std::vector<audio_sample_t>& TimeLine::renderBlock(ma_uint64 start_frame) {
+const AudioBuffer& TimeLine::renderBlock(ma_uint64 start_frame) {
     static ma_uint64 expected_frame = 0;
 
     // clearing buffer and allocating memory if needed
-    std::vector<audio_sample_t> &buf = rendering_buffer.writerGetBuffer(render_block_size * INNER_CHANNELS);
+    AudioBuffer &buf = rendering_buffer.writerGetBuffer(render_block_size, INNER_CHANNELS);
 
     float gain = dbToGain(gain_db);
     //TODO: INVALIDATE CACHE IF START_FRAME != NEXT EXPECTED FRAME
@@ -315,10 +306,14 @@ const std::vector<audio_sample_t>& TimeLine::renderBlock(ma_uint64 start_frame) 
 
         const auto &track_buf = track.renderBlock(start_frame + latency);
 
-        for (int i = 0; i < frame_count * INNER_CHANNELS; i++) {
-            buf[i] += track_buf[i] * gain;
+        for (int ch = 0; ch < INNER_CHANNELS; ch++) {
+            audio_sample_t *ch_out = buf.getChannel(ch);
+            const audio_sample_t *ch_track = track_buf[ch];
+            for (int i = 0; i < frame_count; i++) {
+                ch_out[i] += ch_track[i] * gain;
             // PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "timeline_amp: "<< buf[i] <<
                                                             // " track_amp: " << track_buf[i];
+            }
         }
     }
 
@@ -326,6 +321,15 @@ const std::vector<audio_sample_t>& TimeLine::renderBlock(ma_uint64 start_frame) 
 
     return rendering_buffer.writerSentReadyBuffer();
 }
+
+const std::vector<audio_sample_t> &TimeLine::renderBlockInterleaved(ma_uint64 start_frame) {
+    const AudioBuffer &buffer = renderBlock(start_frame);
+    ma_interleave_pcm_frames(ma_format_f32, INNER_CHANNELS, render_block_size,
+            reinterpret_cast<const void**>(const_cast<const float **>(buffer.data())),
+            interleave_buffer.data());
+    return  interleave_buffer;
+}
+
 
 void TimeLine::renderFrames(audio_sample_t *out, ma_uint64 start_frame, ma_uint64 frame_count) {
 
@@ -336,7 +340,7 @@ void TimeLine::renderFrames(audio_sample_t *out, ma_uint64 start_frame, ma_uint6
         ma_uint64 step = std::min(ma_uint64(render_block_size), frames_left);
 
         if (block_adapter.size() < step * INNER_CHANNELS) {
-            const auto &buffer = renderBlock(cur_frame);
+            const auto &buffer = renderBlockInterleaved(cur_frame);
             cur_frame += render_block_size;
 
             PLOG_VERBOSE_IF(g_debug_flags.block_adapter_logs) << "Pushing " << render_block_size << "frames";

@@ -3,36 +3,97 @@
 #include "common.h"
 #include <mutex>
 
+/* ====================== MULTI CHANNEL BUFFER ===================== */
+// Used for storing deinterleaved samples
+class MultiChannelBuffer {
+    std::unique_ptr<float[]> memory;   // Using one contiguos block and
+    std::vector<float*> channels;      // Array of pointers
+    uint32_t channels_count_ = 0;
+    uint32_t frame_count_ = 0;
+
+public:
+    uint32_t getChannels() const { return channels_count_; }
+    uint32_t getFrameCount() const { return frame_count_; }
+
+    MultiChannelBuffer() {}
+
+    MultiChannelBuffer(uint32_t frame_count, uint32_t ch) {
+        resize(frame_count, ch);
+    }
+
+    void resize(uint32_t size, uint32_t ch) {
+        if (ch != channels_count_ || size != frame_count_) {
+            channels_count_ = ch;
+            frame_count_ = size;
+            memory = std::make_unique<float[]>(ch * size);
+            channels.resize(ch);
+            for (uint32_t i = 0; i < ch; ++i) {
+                channels[i] = memory.get() + i * size;
+            }
+        }
+    }
+
+    void clear() {
+        std::fill(memory.get(), memory.get() + channels_count_ * frame_count_, 0);
+    }
+
+    bool empty() { return !memory.get(); }
+
+    float* getChannel(uint32_t ch) {
+        assert(ch < channels_count_);
+        return channels[ch];
+    }
+
+    float getMeanSample(uint32_t frame) const {
+        float sum = 0;
+        for (int i = 0; i < channels_count_; i++) {
+            sum += channels[i][frame];
+        }
+
+        return sum / channels_count_;
+
+    }
+
+    const float* operator[](uint32_t ch) const { return channels[ch]; }
+
+    // Raw data
+    const float * const *data() const {return channels.data(); }
+
+    float** data() { return channels.data(); }
+};
+
 /* ====================== STREAMING BUFFER ========================= */
-// Use case: 
+// Use case:
 // Audio thread -> renders pack of frames and then uses them on next stage
 // GUI thread   -> gets latest pack of rendered frames for visualization
 // Overall data flow is controlled by audio thread
+
+using AudioBuffer = MultiChannelBuffer;
 struct ReadableStreamingBuffer {
 private:
-    std::vector<audio_sample_t> buffers[3];
+    AudioBuffer buffers[3];
     std::int16_t latest_buffer = 0;
-    std::int16_t reader_buffer = 0; 
-    std::int16_t writer_buffer = -1; 
+    std::int16_t reader_buffer = 0;
+    std::int16_t writer_buffer = -1;
 
     std::mutex& mtx;
 
 public:
-    ReadableStreamingBuffer(std::mutex& mtx_, size_t elems);
+    ReadableStreamingBuffer(std::mutex& mtx_, size_t frame_count, size_t channels);
     /* =============== WRITER THREAD ========================== */
 
     // Get free buffer filled with zeros
-    std::vector<audio_sample_t> &writerGetBuffer(size_t elems);
-    // Use after writerGetBuffer to mark it as ready 
+    AudioBuffer &writerGetBuffer(size_t frame_count, size_t channels);
+    // Use after writerGetBuffer to mark it as ready
     // It is guaranteed that this buffer will be read only at least until next getBuffer() call
     // Also this buffer won't be rewritten if reader took it
-    const std::vector<audio_sample_t> &writerSentReadyBuffer();
+    const AudioBuffer &writerSentReadyBuffer();
 
     /* ============== READER THREAD =========================== */
 
     // Get latest buffer ready for processing
     // Also releases previously tooken buffer
-    const std::vector<audio_sample_t> &readerGetReadyBuffer();
+    const AudioBuffer &readerGetReadyBuffer();
 
 };
 
@@ -48,7 +109,7 @@ public:
 template<typename T>
 class BulkQueue {
 public:
-    explicit BulkQueue(std::size_t capacity) 
+    explicit BulkQueue(std::size_t capacity)
         : data_(capacity), capacity_(capacity) {
         if (capacity_ == 0) throw std::invalid_argument("Capacity must be > 0");
     }

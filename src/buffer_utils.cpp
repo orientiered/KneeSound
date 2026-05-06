@@ -1,15 +1,15 @@
 #include "buffer_utils.h"
 
 /* ================= ReadableStreamingBuffer ==== */
-ReadableStreamingBuffer::ReadableStreamingBuffer(std::mutex& mtx_, size_t elems): 
-    mtx(mtx_) 
+ReadableStreamingBuffer::ReadableStreamingBuffer(std::mutex& mtx_, size_t frame_count, size_t channels):
+    mtx(mtx_)
 {
-    buffers[0].resize(elems);
-    buffers[1].resize(elems);
-    buffers[2].resize(elems);
+    buffers[0].resize(frame_count, channels);
+    buffers[1].resize(frame_count, channels);
+    buffers[2].resize(frame_count, channels);
 }
 
-std::vector<audio_sample_t> &ReadableStreamingBuffer::writerGetBuffer(size_t elems) {
+AudioBuffer &ReadableStreamingBuffer::writerGetBuffer(size_t frame_count, size_t channels) {
     {
         std::lock_guard<std::mutex> lock(mtx);
 
@@ -28,14 +28,14 @@ std::vector<audio_sample_t> &ReadableStreamingBuffer::writerGetBuffer(size_t ele
         }
     }
 
-    std::vector<audio_sample_t> &buf = buffers[writer_buffer];
-    buf.resize(elems);
-    std::fill(buf.begin(), buf.end(), 0);
+    AudioBuffer &buf = buffers[writer_buffer];
+    buf.resize(frame_count, channels);
+    buf.clear();
 
     return buf;
 }
 
-const std::vector<audio_sample_t> &ReadableStreamingBuffer::writerSentReadyBuffer() {
+const AudioBuffer &ReadableStreamingBuffer::writerSentReadyBuffer() {
     std::lock_guard<std::mutex> lock(mtx);
 
     latest_buffer = writer_buffer;
@@ -44,7 +44,7 @@ const std::vector<audio_sample_t> &ReadableStreamingBuffer::writerSentReadyBuffe
     return buffers[latest_buffer];
 }
 
-const std::vector<audio_sample_t> &ReadableStreamingBuffer::readerGetReadyBuffer() {
+const AudioBuffer &ReadableStreamingBuffer::readerGetReadyBuffer() {
     std::lock_guard<std::mutex> lock(mtx);
 
     reader_buffer = latest_buffer;

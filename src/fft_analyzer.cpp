@@ -1,5 +1,7 @@
 #include "fft_analyzer.h"
 
+#include "buffer_utils.h"
+#include "common.h"
 #include "kiss_fftr.h"
 #include "fft_utils.h"
 #include "imgui.h"
@@ -39,7 +41,7 @@ void FFT_Analyzer::analyzeClip(const Clip &clip) {
         uint32_t frame = idx + clip.source_start_frame;
         cx_in[idx] = clip.source->getMonoSampleAmplitude(frame);
     }
-    
+
     using namespace std::chrono_literals;
 
     auto clk_start = std::chrono::high_resolution_clock::now();
@@ -55,7 +57,7 @@ void FFT_Analyzer::analyzeClip(const Clip &clip) {
 
     analyze_time = (clk_end - clk_start) / 1.0s;
     PLOG_DEBUG << "Fftr took " << analyze_time;
-    
+
     // const size_t bin_count = std::min(1000ul, cx_out.size() );
     amps.resize(cx_out.size(), 0);
 
@@ -72,7 +74,7 @@ void FFT_Analyzer::analyzeClip(const Clip &clip) {
 
     max_freq = static_cast<float>(INNER_SAMPLE_RATE) / 2  * max_idx / amps.size();
 
-    PLOG_DEBUG << "Max amp idx " << max_idx << "(val = " << max_amp << ") freq = " << max_freq; 
+    PLOG_DEBUG << "Max amp idx " << max_idx << "(val = " << max_amp << ") freq = " << max_freq;
 
     open = true;
 }
@@ -80,9 +82,10 @@ void FFT_Analyzer::analyzeClip(const Clip &clip) {
 void FFT_Analyzer::analyzeBuffer() {
     if (!realtime_spectr_from_buffer || !buffer_) return;
 
-    const std::vector<audio_sample_t> &data = buffer_->readerGetReadyBuffer();
+    const AudioBuffer &buf = buffer_->readerGetReadyBuffer();
+    const audio_sample_t *data = buf[0];
 
-    int nfft = (data.size() / INNER_CHANNELS) & (~1ull); // nfft must be even 
+    int nfft = buf.getFrameCount() & (~1ull); // nfft must be even
 
     if (wfftr.getNfft() != nfft) {
         wfftr = WindowedKissFFTR(nfft, window_type, true);
@@ -95,11 +98,11 @@ void FFT_Analyzer::analyzeBuffer() {
 
     temp_in.resize(nfft);
     temp_out.resize(nfft/2+1);
-    
+
     for (uint32_t idx = 0; idx < nfft; idx++) {
         temp_in[idx] = (data[idx*2] + data[idx*2+1] ) / 2;
     }
-    
+
 
     // applying window and fft
     wfftr.forward(temp_in.data() , temp_out.data() );
@@ -117,14 +120,14 @@ void FFT_Analyzer::analyzeBuffer() {
 
     auto clk_end = std::chrono::high_resolution_clock::now();
     analyze_time = (clk_end - clk_start) / 1.0s;
-    // PLOG_DEBUG << "Fftr took " << analyze_time;    
+    // PLOG_DEBUG << "Fftr took " << analyze_time;
 
 
 }
 
 
 void FFT_Analyzer::DrawAnalyzed() {
-    
+
     if (realtime_spectr_from_buffer ) {
         analyzeBuffer();
     }
@@ -132,7 +135,7 @@ void FFT_Analyzer::DrawAnalyzed() {
     static float scale = 1.0f;
     static int cutoff_idx = amps.size();
     static int bins = 100;
-    
+
     if (ImGui::Button("Reset")) {
         scale = 1.0f;
         cutoff_idx = amps.size();
@@ -174,7 +177,7 @@ void FFT_Analyzer::DrawAnalyzed() {
 
     ImGui::PlotHistogram("##spectr2", amps_bin.data(), bins,
             0, NULL, 0.0f, 1/scale, ImVec2(0, 150.0f));
-    
+
     ImGui::SeparatorText("Analyze Info");
     ImGui::Text("Main frequency: %.2f Hz", max_freq);
     ImGui::Text("Processing time: %.1f ms", analyze_time * 1000);

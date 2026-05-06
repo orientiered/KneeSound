@@ -18,7 +18,7 @@ inline float dbToGain(float db) {
     return std::pow(10.0f, db / 20.0f);
 }
 
-// Simple clamping 
+// Simple clamping
 inline float clampSample(float sample, float threshold = 0.99f) {
     if (sample > threshold) return threshold;
     if (sample < -threshold) return -threshold;
@@ -50,10 +50,10 @@ inline audio_sample_t interleavedToMono(const audio_sample_t *sample, size_t cha
     return sum / channels;
 }
 
-static const size_t START_RENDER_BUFFER_SIZE = 4096; 
+static const size_t START_RENDER_BUFFER_SIZE = 4096;
 
 struct PeakCache {
-    ma_uint64 block_size_; 
+    ma_uint64 block_size_;
     struct min_max {
         float min = 10.0f;
         float max = -10.0f;
@@ -69,16 +69,16 @@ struct PeakCache {
 
     std::vector<min_max> peaks; // min and max in block
 
-    PeakCache(ma_uint64 block_size, const std::vector<float> &samples, ma_uint64 channels);
+    PeakCache(ma_uint64 block_size, const AudioBuffer &samples);
     PeakCache(ma_uint64 block_size, const PeakCache &cache);
 };
 
 struct PeakCacheManager {
     std::vector<PeakCache> peak_caches;
-    void build(const std::vector<float> &samples, ma_uint64 channels) {
+    void build(const AudioBuffer &samples) {
         if (!peak_caches.empty()) return;
 
-        peak_caches.emplace_back(16, samples, channels);
+        peak_caches.emplace_back(16, samples);
         peak_caches.emplace_back(64, peak_caches.back());
         peak_caches.emplace_back(256, peak_caches.back());
         peak_caches.emplace_back(1024, peak_caches.back());
@@ -87,7 +87,7 @@ struct PeakCacheManager {
         std::reverse(peak_caches.begin(), peak_caches.end());
     }
 
-    std::optional<PeakCache::min_max> getPeak(ma_uint64 f_start, ma_uint64 f_end) const; 
+    std::optional<PeakCache::min_max> getPeak(ma_uint64 f_start, ma_uint64 f_end) const;
 };
 
 struct AudioSource {
@@ -95,18 +95,16 @@ struct AudioSource {
     std::string name;
     std::string path;
 
-    std::atomic<bool> loading = false; // use when loading asynchronously 
-    
-    std::vector<float> pcmData;
+    std::atomic<bool> loading = false; // use when loading asynchronously
+
+    MultiChannelBuffer pcmData;
 
     PeakCacheManager cache;
 
     AudioSource(const std::string& name_, const std::string& path_): name(name_), path(path_) {}
-     
-    float getMonoSampleAmplitude(ma_uint64 frame) const {
-        if (frame >= pcmData.size() / INNER_CHANNELS) return 0;
 
-        return interleavedToMono(&pcmData[frame*INNER_CHANNELS], INNER_CHANNELS);
+    float getMonoSampleAmplitude(ma_uint64 frame) const {
+        return pcmData.getMeanSample(frame);
     }
 
     PeakCache::min_max getPeakFallback(ma_uint64 start, ma_uint64 end) const {
@@ -120,14 +118,14 @@ struct AudioSource {
     PeakCache::min_max getPeak(ma_uint64 start, ma_uint64 end) const {
         auto cached = cache.getPeak(start, end);
         if (cached) return *cached;
-        
+
         return getPeakFallback(start, end);
     }
 
 
     ma_uint64 getDurationFrames() const {
-        return pcmData.size() / INNER_CHANNELS;
-    }   
+        return pcmData.getFrameCount();
+    }
 
 };
 
@@ -143,6 +141,7 @@ private:
         id = unique_id_++;
         return id;
     }
+
 public:
     // ==== Data ===
     ClipId_t id; // used for interaction handling
@@ -155,18 +154,18 @@ public:
     ma_int64 timeline_start_frame;
 
     // === General audio params ===
-    double playback_speed = 1.0; 
+    double playback_speed = 1.0;
     static inline const double MAX_PLAYBACK_SPEED = 10.0;
     static inline const double MIN_PLAYBACK_SPEED = 0.1;
 
     float gain_db = 0;           // громкость в децибелах (или линейный множитель)
     float pan = 0;            // панорама: -1.0 (лево) ... 0.0 (центр) ... 1.0 (право)
-    bool muted = false;           // mute
+    bool  muted = false;           // mute
 
     // === Fade in/out ===
-    
-    Fade fade_in{Fade::IN, 0};  
-    Fade fade_out{Fade::OUT, 0};  
+
+    Fade fade_in{Fade::IN, 0};
+    Fade fade_out{Fade::OUT, 0};
 
     // === Helpers ===
     ma_uint64 getSourceDuration() const {
@@ -188,8 +187,8 @@ public:
         return timeline_start_frame + getDurationFrames();
     }
 
-    audio_sample_t* getClipSrcFrame(ma_int64 src_frame) const {
-        return &source->pcmData[src_frame * INNER_CHANNELS];
+    audio_sample_t getClipSrcFrame(uint32_t channel, ma_int64 src_frame) const {
+        return source->pcmData[channel][src_frame];
     }
 
     double clipFrameToSrcFrame(ma_int64 clip_frame) const {
@@ -200,10 +199,10 @@ public:
         return (src_frame - source_start_frame) / playback_speed;
     }
 
-    void getClipFrameInterpolated(audio_sample_t *out, double src_frame) const;
+    audio_sample_t getClipFrameInterpolated(uint32_t channel, double src_frame) const;
 
     audio_sample_t getMonoClipFrame(ma_int64 clip_frame) const;
-    
+
     PeakCache::min_max getPeak(ma_int64 clip_start_frame, ma_int64 clip_end_frame) const;
 
     // Конвертация: время на таймлайне -> кадр в источнике
@@ -216,9 +215,9 @@ public:
         return clip_local_frame;
     }
 
-    /// Renders frames to out array, ADDITIVELY 
+    /// Renders frames to out buffer, ADDITIVELY
     /// Doesn't write zeros
-    void renderFrames(std::vector<audio_sample_t> &out, ma_int64 start_frame, ma_uint64 frame_count);
+    void renderFrames(AudioBuffer &out, ma_int64 start_frame, ma_uint64 frame_count);
 
     /// Trim clip from left (false) or right(true) to position timeline_pos
     /// @return Trim made any changes
@@ -232,7 +231,7 @@ public:
         playback_speed = std::clamp(speed, MIN_PLAYBACK_SPEED, MAX_PLAYBACK_SPEED);
         return playback_speed;
     }
-    
+
     friend std::ostream& operator<<(std::ostream& os, const Clip& clip);
 
     Clip copy() {
@@ -243,7 +242,7 @@ public:
 
     Clip(AudioSourcePtr src, ma_int64 timeline_pos):
         source(src), timeline_start_frame(timeline_pos),
-        source_start_frame(0), source_end_frame(src->pcmData.size() / INNER_CHANNELS)
+        source_start_frame(0), source_end_frame(src->pcmData.getFrameCount())
     {
         setUniqueId();
     }
@@ -270,7 +269,7 @@ public:
     ReadableStreamingBuffer rendering_buffer;
 
     const size_t render_block_size = RENDER_BLOCK_SIZE;
-    
+
     float gain_db = 0;
     float pan = 0;
     bool  mute = false;
@@ -281,7 +280,7 @@ public:
     // PitchShifter  pitch;
     // ================ Methods ================================
 
-    const std::vector<audio_sample_t> &renderBlock(ma_uint64 start_frame);
+    const AudioBuffer &renderBlock(ma_uint64 start_frame);
     size_t getLatency();
 
     void addClip(Clip&& clip) {
@@ -296,10 +295,10 @@ public:
         clips.push_back(clip);
     }
 
-    Track(std::mutex& mtx_) : 
-        rendering_buffer(mtx_, START_RENDER_BUFFER_SIZE*INNER_CHANNELS),
+    Track(std::mutex& mtx_) :
+        rendering_buffer(mtx_, START_RENDER_BUFFER_SIZE, INNER_CHANNELS),
         fft_pipeline(render_block_size, INNER_CHANNELS),
-        equalizer(render_block_size) 
+        equalizer(render_block_size)
     {
         setUniqueId();
     }
@@ -338,11 +337,13 @@ public:
     const size_t render_block_size = RENDER_BLOCK_SIZE;
 
     AudioBlockAdapter block_adapter;
+    std::vector<audio_sample_t> interleave_buffer;
 
-    TimeLine(std::mutex &mtx_): 
-        mtx(mtx_), 
-        rendering_buffer(render_buffer_mtx, START_RENDER_BUFFER_SIZE * INNER_CHANNELS),
-        block_adapter(render_block_size * INNER_CHANNELS * 2) {}
+    TimeLine(std::mutex &mtx_):
+        mtx(mtx_),
+        rendering_buffer(render_buffer_mtx, START_RENDER_BUFFER_SIZE, INNER_CHANNELS),
+        block_adapter(render_block_size * INNER_CHANNELS * 2),
+        interleave_buffer(render_block_size * INNER_CHANNELS) {}
 
     float gain_db = 0; // master gain
 
@@ -357,8 +358,9 @@ public:
 
     Track *getTrackById(TrackId_t id);
 
-    const std::vector<audio_sample_t>& renderBlock(ma_uint64 start_frame);
-    
+    const AudioBuffer& renderBlock(ma_uint64 start_frame);
+    const std::vector<audio_sample_t> &renderBlockInterleaved(ma_uint64 start_frame);
+
     void renderFrames(audio_sample_t *out, ma_uint64 start_frame, ma_uint64 frame_count);
 
     bool isValidClipId(ClipId_t id);

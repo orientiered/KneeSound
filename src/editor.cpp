@@ -1,4 +1,6 @@
 #include "editor.h"
+#include "buffer_utils.h"
+#include "common.h"
 #include <thread>
 
 namespace waves {
@@ -24,10 +26,14 @@ AudioSourcePtr decode_audio_from_file(const std::string& name, const std::string
 
         // on success setting valid flag and computing peaks cache
         if (pcmData) {
-            source->pcmData = std::move(*pcmData);
+            uint64_t frameCount = pcmData->size() / INNER_CHANNELS;
+            source->pcmData = AudioBuffer(frameCount, INNER_CHANNELS);
+            ma_deinterleave_pcm_frames(ma_format_f32, INNER_CHANNELS, frameCount,
+                pcmData->data(), reinterpret_cast<void**>(source->pcmData.data()));
+
             source->valid = true;
             PLOG_INFO << "Building peaks cache...";
-            source->cache.build(source->pcmData, INNER_CHANNELS);
+            source->cache.build(source->pcmData);
         }
 
         // not busy
@@ -67,7 +73,7 @@ void Editor::Draw() {
             }
 
             if (ImGui::MenuItem("Import audio")) {
-                
+
             }
 
             ImGui::MenuItem("Export", NULL, &show_export_window);

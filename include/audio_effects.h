@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common.h"
+#include "buffer_utils.h"
 
 #include "kiss_fftr.h"
 #include "fft_utils.h"
@@ -26,8 +27,8 @@ private:
     size_t channels_;
 
     // overlap and previous are stored sequentially, not interleaved
-    std::vector<audio_sample_t> overlap_add_;
-    std::vector<audio_sample_t> previous_block_;
+    AudioBuffer overlap_add_;
+    AudioBuffer previous_block_;
 
     std::vector<audio_sample_t> time_data; ///< array for temporary calculations
     std::vector<kiss_fft_cpx>   freq_data; ///< array for temporary calculations
@@ -36,8 +37,8 @@ public:
     FreqDomainEffect(size_t block_size, size_t channels):
         wfftr_(2*block_size, WindowFunction::Type::Hann, true, true),
         hop_size_(block_size), channels_(channels),
-        overlap_add_(hop_size_ * channels_, 0.0f),
-        previous_block_(hop_size_ * channels_, 0.0f),
+        overlap_add_(hop_size_, channels_),
+        previous_block_(hop_size_, channels_),
         time_data(2*block_size, 0.0f),
         freq_data(block_size + 1) {}
 
@@ -46,12 +47,12 @@ public:
     size_t getFreqDataSize() const noexcept { return hop_size_ + 1; }
 
     void reset() {
-        std::fill(overlap_add_.begin(), overlap_add_.end(), 0.0f);
-        std::fill(previous_block_.begin(), previous_block_.end(), 0.0f);
+        overlap_add_.clear();
+        previous_block_.clear();
     }
 
     template<typename Processor>
-    void processBlock(audio_sample_t *inout, Processor &processor) {
+    void processBlock(AudioBuffer &inout, Processor &processor) {
         for (size_t ch_idx = 0; ch_idx < channels_; ch_idx++) {
 
             prepareTimeData(inout, ch_idx);
@@ -69,8 +70,8 @@ public:
     }
 
 private:
-    void prepareTimeData(audio_sample_t *in, size_t ch_idx);
-    void applyOverlap(audio_sample_t *out, size_t ch_idx);
+    void prepareTimeData(AudioBuffer &in, size_t ch_idx);
+    void applyOverlap(AudioBuffer &out, size_t ch_idx);
 };
 
 /* ========================== Interface for freq domain effect ========== */
@@ -118,6 +119,14 @@ public:
     }
 
     ~Equalizer() override = default;
+};
+
+class IDspKernel {
+public:
+    virtual ~IDspKernel() = default;
+    virtual void prepare(double sampleRate, uint32_t blockSize) = 0;
+    virtual void process(float** inputs, float** outputs, uint32_t numSamples, uint32_t numChannels) = 0;
+    virtual void reset() = 0;
 };
 
 class ITimeEffect {

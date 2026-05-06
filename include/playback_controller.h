@@ -15,7 +15,7 @@ using SourceIt = typeof(MediaPool().begin());
 enum SampleSource {
     POOL_SRC,
     TIMELINE_SRC
-}; 
+};
 
 struct PlaybackController {
     bool isPlaying = false;
@@ -28,14 +28,14 @@ struct PlaybackController {
     TimeLine& timeline;
 
     std::mutex &mtx;
-    
 
-    PlaybackController(std::mutex &mtx_, MediaPool& pool_, TimeLine& timeline_) : 
+
+    PlaybackController(std::mutex &mtx_, MediaPool& pool_, TimeLine& timeline_) :
         mtx(mtx_), pool(pool_), timeline(timeline_) {}
 
     void getFrames(void *out, ma_uint32 frameCount) {
         std::lock_guard<std::mutex> lock_guard(mtx);
-        
+
         if (!isPlaying) return;
 
         if (src == POOL_SRC) {
@@ -65,7 +65,7 @@ struct PlaybackController {
     }
 
     int32_t getCurrentTrackLenInFrames() {
-        return (*currentTrack)->pcmData.size() / INNER_CHANNELS;
+        return (*currentTrack)->getDurationFrames();
     }
 
     int32_t getCurrentTrackPosInFrames() {
