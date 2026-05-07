@@ -8,8 +8,37 @@
 #include "algorithm"
 #include <cmath>
 #include <functional>
+#include <memory>
 
 namespace waves {
+
+class IDspKernel {
+public:
+    virtual ~IDspKernel() = default;
+    virtual void prepare(double sampleRate, uint32_t blockSize) = 0;
+    virtual void process(const float * const *inputs, float **outputs, uint32_t numSamples, uint32_t numChannels) = 0;
+    virtual void reset() = 0;
+};
+
+using StateWriter = std::ostream;
+using StateReader = std::istream;
+
+class IEffectView {
+public:
+    virtual ~IEffectView() = default;
+    virtual void DrawSettings();
+    virtual void serialize(StateWriter &out);
+    virtual void deserialize(StateReader &in);
+
+};
+
+class EffectSlot {
+public:
+    std::unique_ptr<IDspKernel> effect;
+    std::unique_ptr<IEffectView> view;
+    std::string name;
+};
+
 
 /* ================ GENERAL CLASS FOR EFFECT IN FREQUENCY DOMAIN ========== */
 /// 0. For each channel:
@@ -121,13 +150,7 @@ public:
     ~Equalizer() override = default;
 };
 
-class IDspKernel {
-public:
-    virtual ~IDspKernel() = default;
-    virtual void prepare(double sampleRate, uint32_t blockSize) = 0;
-    virtual void process(float** inputs, float** outputs, uint32_t numSamples, uint32_t numChannels) = 0;
-    virtual void reset() = 0;
-};
+
 
 class ITimeEffect {
 public:
