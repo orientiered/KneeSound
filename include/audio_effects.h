@@ -3,44 +3,55 @@
 #include "common.h"
 #include "buffer_utils.h"
 
-#include "kiss_fftr.h"
+#include "kiss_fft.h"
 #include "fft_utils.h"
 #include "algorithm"
 #include <cmath>
-#include <functional>
 #include <memory>
 
 namespace waves {
 
+// Db to linear conversion
+inline float dbToGain(float db) {
+    return std::pow(10.0f, db / 20.0f);
+}
+
+/* =================== Base interface for effects =============== */
 class IDspKernel {
 public:
     virtual ~IDspKernel() = default;
-    virtual void prepare(double sampleRate, uint32_t blockSize) = 0;
-    virtual void process(const float * const *inputs, float **outputs, uint32_t numSamples, uint32_t numChannels) = 0;
+    // virtual void prepare(double sampleRate, uint32_t blockSize) = 0;
+    virtual void process(const AudioBuffer& in, AudioBuffer &out) = 0;
+    virtual uint32_t getLatencySamples() const = 0;
     virtual void reset() = 0;
 };
 
 using StateWriter = std::ostream;
 using StateReader = std::istream;
 
+/* ============== Base interface for effect editor/view-controller ========== */
 class IEffectView {
 public:
     virtual ~IEffectView() = default;
-    virtual void DrawSettings();
-    virtual void serialize(StateWriter &out);
-    virtual void deserialize(StateReader &in);
+    virtual void DrawSettings() = 0;
+    // virtual void serialize(StateWriter &out);
+    // virtual void deserialize(StateReader &in);
 
 };
 
+/* =============== Effect slot with kernel and view ======================================== */
 class EffectSlot {
 public:
-    std::unique_ptr<IDspKernel> effect;
+    EffectSlot(std::unique_ptr<IDspKernel> k, std::unique_ptr<IEffectView> v):
+        kernel(std::move(k)), view(std::move(v)) {}
+
+    std::unique_ptr<IDspKernel> kernel;
     std::unique_ptr<IEffectView> view;
     std::string name;
 };
 
 
-/* ================ GENERAL CLASS FOR EFFECT IN FREQUENCY DOMAIN ========== */
+/* ================ GENERAL PIPELINE FOR EFFECT IN FREQUENCY DOMAIN ========== */
 /// 0. For each channel:
 /// 1. Concat data[block_size] with previous segment
 /// 2. Perform real fft with Hann window -> freq_data[block_size+1]
@@ -48,7 +59,7 @@ public:
 /// 4. Inverse fft with normalization
 /// 5. Overlapp add with previous calculated segment
 /// Important: due to overlapp-add has latency of 1 block size
-class FreqDomainEffect {
+class FreqDomainPipeline {
 private:
     WindowedKissFFTR wfftr_;
 
@@ -63,7 +74,7 @@ private:
     std::vector<kiss_fft_cpx>   freq_data; ///< array for temporary calculations
 
 public:
-    FreqDomainEffect(size_t block_size, size_t channels):
+    FreqDomainPipeline(size_t block_size, size_t channels):
         wfftr_(2*block_size, WindowFunction::Type::Hann, true, true),
         hop_size_(block_size), channels_(channels),
         overlap_add_(hop_size_, channels_),
@@ -80,287 +91,45 @@ public:
         previous_block_.clear();
     }
 
+    // in and out may be the same
     template<typename Processor>
-    void processBlock(AudioBuffer &inout, Processor &processor) {
+    void processBlock(const AudioBuffer &in, AudioBuffer &out, Processor &processor) {
         for (size_t ch_idx = 0; ch_idx < channels_; ch_idx++) {
 
-            prepareTimeData(inout, ch_idx);
+            prepareTimeData(in, ch_idx);
 
             wfftr_.forward(time_data.data(), freq_data.data());
 
-            processor(freq_data);
+            processor.processFreqData(freq_data);
 
             wfftr_.inverse(freq_data.data(), time_data.data());
             wfftr_.normalize(time_data.data());
 
-            applyOverlap(inout, ch_idx);
+            applyOverlap(out, ch_idx);
         }
 
     }
 
 private:
-    void prepareTimeData(AudioBuffer &in, size_t ch_idx);
+    void prepareTimeData(const AudioBuffer &in, size_t ch_idx);
     void applyOverlap(AudioBuffer &out, size_t ch_idx);
 };
 
-/* ========================== Interface for freq domain effect ========== */
 
-// using FreqEffectCallback_t =
-class IFreqEffect {
-public:
-    virtual void operator()(std::vector<kiss_fft_cpx> &freq_data) = 0;
-    virtual ~IFreqEffect() = default;
-};
-
-/* ========================== EQUALIZER ======================== */
-class Equalizer: IFreqEffect {
-private:
-    std::vector<float> freq_response_;      ///< Response curve used in processing
-    std::vector<float> new_freq_response_;  ///< Used for asynchronous response change
-    bool freq_response_updated_ = true;
-public:
-    Equalizer(size_t block_size):
-        freq_response_(block_size + 1, 1.0f) {}
-
-    size_t getSize() const noexcept { return freq_response_.size(); }
-
-    void setFreqResponse(const std::vector<float> response) {
-        if (response.size() != freq_response_.size())
-            throw std::invalid_argument("Frequency response size must be block_size + 1");
-
-        new_freq_response_ = response;
-        freq_response_updated_ = false;
-    }
-
-    void operator()(std::vector<kiss_fft_cpx> &freq_data) override {
-        // Updating frequency response curve
-        //TODO: potential race condition, but extremely rare
-        if (!freq_response_updated_) {
-            std::swap(freq_response_, new_freq_response_);
-            freq_response_updated_ = true;
-        }
-
-        const size_t spectr_size = freq_response_.size();
-        for (size_t i = 0; i < spectr_size; i++) {
-            freq_data[i].i *= freq_response_[i];
-            freq_data[i].r *= freq_response_[i];
-        }
-    }
-
-    ~Equalizer() override = default;
-};
-
-
-
-class ITimeEffect {
-public:
-    virtual void operator()(const audio_sample_t* input, audio_sample_t* output, size_t numSamples) = 0;
-    virtual ~ITimeEffect() = default;
-
-};
-
-class BiquadFilter : public ITimeEffect {
-private:
-    // Filter coeffs
-    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
-    float a1 = 0.0f, a2 = 0.0f;
-
-    // Filter state
-    float s1 = 0.0f, s2 = 0.0f;
-public:
-    void setCoefficients(float f1, float f2, float f3, float g1, float g2) {
-        b0 = f1; b1 = f2; b2 = f3;
-        a1 = g1; a2 = g2;
-    }
-
-    // One sample processing, Transposed direct form 2
-    inline float process(float x) {
-        float y = b0 * x + s1;
-        s1 = b1 * x + s2 - a1 * y;
-        s2 = b2 * x - a2 * y;
-        return y;
-    }
-
-    ~BiquadFilter() override = default;
-    virtual void operator()(const audio_sample_t* input, audio_sample_t* output, size_t numSamples) override {
-        for (size_t i = 0; i < numSamples; ++i) {
-            output[i] = process(input[i]);
-        }
-    }
-};
-
-
-struct BiquadSettings {
-    struct Coeffs {
-        float f1, f2, f3; // numerator
-        float g1, g2;     // denumerator (with a0=1, normalized form)
-
-        Coeffs(float b1, float b2, float b3, float a1, float a2):
-            f1(b1), f2(b2), f3(b3), g1(a1), g2(a2) {}
-        // With normalization
-        Coeffs(double b1, double b2, double b3, double a0, double a1, double a2):
-            f1(b1/a0), f2(b2/a0), f3(b3/a0), g1(a1/a0), g2(a2/a0) {}
-    };
-
-private:
-    // fc = центральная частота, Q = добротность, gainDb = усиление в дБ
-    // fs = частота дискретизации
-    // src: https://webaudio.github.io/Audio-EQ-Cookbook/audio-eq-cookbook.html
-    struct RBJ_Params {
-        double A;
-        double w0;
-        double cos_w0, sin_w0;
-        double alpha;
-
-        RBJ_Params(double fc, double Q, double gainDb, double fs) {
-            A  = std::pow(10.0, gainDb / 40.0);
-            w0 = 2.0 * M_PI * fc / fs;
-            cos_w0 = std::cos(w0);
-            sin_w0 = std::sin(w0);
-            alpha  = sin_w0 / (2.0 * Q);
-        }
-    };
-
-public:
-    Coeffs makeLPF(double fc, double Q, double gainDb, double fs);
-
-    Coeffs makeHPF(double fc, double Q, double gainDb, double fs);
-
-    Coeffs makeBPF(double fc, double Q, double gainDb, double fs);
-
-    Coeffs makeNotch(double fc, double Q, double gainDb, double fs);
-
-    Coeffs makePeaking(double fc, double Q, double gainDb, double fs);
-
-    std::vector<float> frequency_response;
-
-};
-
-struct EqualizerView {
-private:
-    enum Preset {
-        NONE = -1,
-        LOWPASS = 0,
-        HIGHPASS,
-        BANDPASS,
-        REJECTOR,
-        KBAND
-    };
-
-    Preset preset = NONE;
-    Preset applied_preset = NONE;
-
-    // lowpass
-    struct Lowpass {
-        float cutoff;
-        float attenuation;
-    } lowpass;
-    // highpass
-    struct Highpass {
-        float cutoff = 1000;
-        float attenuation = 10;
-    } highpass;
-    // bandpass
-    struct Bandpass {
-        float left_cutoff = 1000;
-        float right_cutoff = 2000;
-        float left_attenuation = 10;
-        float right_attenuation = 10;
-    } bandpass;
-    // rejector
-    struct Rejector {
-        float left_cutoff = 40;
-        float right_cutoff = 60;
-        float left_attenuation = 20;
-        float right_attenuation = 20;
-        // float gain_db = -30; // gain in rejection band
-    } rejector;
-    // k-band
-    struct KBand {
-        struct Band {
-            float freq_log;
-            float gain_db;
-        };
-        std::vector<Band> bands;
-        int band_count = 5;
-    } kband;
-
-    const float MAX_FREQ = static_cast<float>(INNER_SAMPLE_RATE) / 2;
-    const float MIN_FREQ = 20.0f;
-    float logFreqToNormal(float freq_log) {
-        return MIN_FREQ * std::pow(MAX_FREQ / MIN_FREQ, freq_log);
-    }
-    float freqToLog(float freq) {
-        return std::log(freq / MIN_FREQ) / std::log(MAX_FREQ / MIN_FREQ);
-    }
-
-    // Set new preset, true if changed
-    bool setPreset(Preset preset_) {
-        bool result = preset_ != preset;
-        preset = preset_;
-        return result;
-    }
-public:
-    std::vector<float> frequency_response;
-    void DrawLowpass();
-    void DrawHighpass();
-    void DrawBandpass();
-    void DrawRejector();
-    void DrawKBand();
-
-    void setResponseSize(size_t size);
-    void saveAppliedPreset() { applied_preset = preset; }
-
-    std::vector<float> &calculateLowpass();
-    std::vector<float> &calculateHighpass();
-    std::vector<float> &calculateBandpass();
-    std::vector<float> &calculateRejector();
-    std::vector<float> &calculateKBand();
-};
-
-
-class PitchShifter: IFreqEffect {
-private:
-    static inline const float MIN_STRETCH_K = 0.05;
-    float stretch_k = 1.0f;
-public:
-    void setStretch(float stretch) {
-        stretch_k = std::max(MIN_STRETCH_K, stretch);
-    }
-
-    float getStretch() const { return stretch_k; }
-    void setPitch(int octaves, int semitones, int cents);
-
-    void operator()(std::vector<kiss_fft_cpx> &freq_data) override;
-    ~PitchShifter() override = default;
-};
-
-// class ChainEffectProcessor {
+// class PitchShifter: IDspKernel {
 // private:
-//     using BlockProcessor = std::function<void(std::vector<kiss_fft_cpx>&)>;
-//     std::vector<std::shared_ptr<IFreqEffect>> effects_;
-
-//     using MetaInfo = int64_t;
-//     std::vector<MetaInfo> effects_meta_;
-
+//     static inline const float MIN_STRETCH_K = 0.05;
+//     float stretch_k = 1.0f;
 // public:
-//     template<typename ProcessorT>
-//     void addEffect(ProcessorT &processor, MetaInfo meta = {}) {
-//         effects_.push_back(std::bind(&processor.operator(), &processor));
-//         effects_meta_.push_back(meta);
+//     void setStretch(float stretch) {
+//         stretch_k = std::max(MIN_STRETCH_K, stretch);
 //     }
 
-//     void popEffect() {
-//         effects_.pop_back();
-//         effects_meta_.pop_back();
-//     }
+//     float getStretch() const { return stretch_k; }
+//     void setPitch(int octaves, int semitones, int cents);
 
-//     void operator()(std::vector<kiss_fft_cpx> &freq_data) {
-//         for (int i = 0; i < effects_.size() ; i++) {
-//             effects_[i](freq_data);
-//         }
-//     }
-
+//     void operator()(std::vector<kiss_fft_cpx> &freq_data) override;
+//     ~PitchShifter() override = default;
 // };
 
 struct Fade {

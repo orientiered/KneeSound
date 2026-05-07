@@ -1,9 +1,14 @@
+#include "audio_effects.h"
 #include "common.h"
 
 #include "timeline_view.h"
+#include "effects/biquad_filter.h"
+#include "effects/fft_equalizer.h"
 #include "imgui_misc.h"
 
 #include "playback_controller.h"
+#include <imgui.h>
+#include <memory>
 
 namespace waves {
 
@@ -496,243 +501,94 @@ bool TimelineView::HandleVerticalClipDrag(ClipId_t clip_id) {
 
 /* ======================== DRAWING ======================================= */
 
-void EqualizerView::DrawLowpass() {
-    ImGui::IdGuard ig(&lowpass);
-    bool modified = setPreset(LOWPASS);
-    modified |= ImGui::DragFloat("Cutoff", &lowpass.cutoff, 3, MIN_FREQ, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
-    modified |= ImGui::DragFloat("Attenuation", &lowpass.attenuation, 1, 0, 100, "%.2f");
-    if (modified)
-        calculateLowpass();
-}
+void TimelineView::DrawFxMenu(std::vector<EffectSlot> &effects) {
+    ImGui::SeparatorText("Effects");
 
-void EqualizerView::DrawHighpass() {
-    ImGui::IdGuard ig(&highpass);
-    bool modified = setPreset(HIGHPASS);
-    modified |= ImGui::DragFloat("Cutoff", &highpass.cutoff, 3, MIN_FREQ, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
-    modified |= ImGui::DragFloat("Attenuation", &highpass.attenuation, 1, 0, 100, "%.2f");
-    if (modified)
-        calculateHighpass();
-}
+    // Adapted from ImGui Demo
+    ImGui::PushItemFlag(ImGuiItemFlags_AllowDuplicateId, true);
 
-void EqualizerView::DrawBandpass() {
-    bool modified = setPreset(BANDPASS);
-    ImGui::IdGuard ig(&bandpass);
-    modified |= ImGui::DragFloat("Cutoff left", &bandpass.left_cutoff, 3, MIN_FREQ, bandpass.right_cutoff, "%.2f", ImGuiSliderFlags_Logarithmic);
-    modified |= ImGui::DragFloat("Cutoff right", &bandpass.right_cutoff, 3, bandpass.left_cutoff, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
-    modified |= ImGui::DragFloat("Attenuation left", &bandpass.left_attenuation, 1, 0, 100, "%.2f");
-    modified |= ImGui::DragFloat("Attenuation right", &bandpass.right_attenuation, 1, 0, 100, "%.2f");
+    const char * const EFFECT_SETTINGS_POPUP = "EFFECT_SETTINGS_POPUP";
 
-    if (modified)
-        calculateBandpass();
-}
+    // Simple reordering
+    size_t len = effects.size();
+    int erase_idx = -1;
 
-void EqualizerView::DrawRejector() {
-    bool modified = setPreset(REJECTOR);
-    ImGui::IdGuard ig(&rejector);
-    modified |= ImGui::DragFloat("Cutoff left", &rejector.left_cutoff, 3, MIN_FREQ, rejector.right_cutoff, "%.2f", ImGuiSliderFlags_Logarithmic);
-    modified |= ImGui::DragFloat("Cutoff right", &rejector.right_cutoff, 3, rejector.left_cutoff, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
-    modified |= ImGui::DragFloat("Attenuation left", &rejector.left_attenuation, 1, 0, 100, "%.2f");
-    modified |= ImGui::DragFloat("Attenuation right", &rejector.right_attenuation, 1, 0, 100, "%.2f");
-    // modified |= ImGui::DragFloat("Attenuation right", &rejector.gain_db, 1, -100, 0, "%.2f");
+    for (int n = 0; n < len; n++)
+    {
+        ImGui::IdGuard ig(n);
+        ImGui::SetNextItemAllowOverlap();
+        ImGui::Selectable(effects[n].name.c_str());
 
-    if (modified)
-        calculateRejector();
-}
+        bool is_dragged = ImGui::IsItemActive() && !ImGui::IsItemHovered();
 
-void EqualizerView::DrawKBand() {
-    bool modified = setPreset(KBAND);
-    ImGui::IdGuard ig(&kband);
+        ImGui::SameLine();
 
-    if (kband.bands.size() != kband.band_count || ImGui::DragInt("Number of bounds", &kband.band_count, 1, 3, 10)) {
-        kband.bands.resize(kband.band_count);
-        for (int i = 0; i < kband.band_count; i++) {
-            kband.bands[i].freq_log = static_cast<float>(i) / (kband.band_count - 1);
+        if (ImGui::Button("...")) {
+            ImGui::OpenPopup(EFFECT_SETTINGS_POPUP);
         }
-        modified = true;
-    }
 
-    for (int i = 0; i < kband.band_count; i++) {
-        if (i > 0) ImGui::SameLine();
+        if (ImGui::BeginPopup(EFFECT_SETTINGS_POPUP)) {
+            effects[n].view->DrawSettings();
+            ImGui::EndPopup();
+        }
 
-        ImGui::IdGuard ig(i);
+        ImGui::SameLine();
+        if (ImGui::Button("X")) {
+            erase_idx = n;
+        }
 
-        float freq = logFreqToNormal(kband.bands[i].freq_log);
-
-        modified |= ImGui::VSliderFloat("##BandSlider", ImVec2(40, 200), &kband.bands[i].gain_db, -20, +20, "");
-
-        if (ImGui::IsItemActive() || ImGui::IsItemHovered()) {
-            if (freq < 1000)
-                ImGui::SetTooltip("%.0f Hz: %.2f db", freq, kband.bands[i].gain_db);
-            else {
-                ImGui::SetTooltip("%.1f Kz: %.2f db", freq / 1000, kband.bands[i].gain_db);
+        if (is_dragged)
+        {
+            int n_next = n + (ImGui::GetMouseDragDelta(0).y < 0.f ? -1 : 1);
+            if (n_next >= 0 && n_next < len)
+            {
+                std::swap(effects[n], effects[n_next]);
+                ImGui::ResetMouseDragDelta();
             }
         }
 
     }
 
-    if (modified)
-        calculateKBand();
-
-}
-
-/*
- Linear attenuation (db / decade) in double logarithimic scale
-*/
-static float interpolateAttenuation(float atten, float freq, float cutoff) {
-    return std::pow(freq / cutoff, -atten / 20.0f);
-}
-
-void EqualizerView::setResponseSize(size_t size) {
-    if (frequency_response.size() != size)
-        frequency_response.resize(size, 1.0f);
-}
-
-
-std::vector<float> &EqualizerView::calculateLowpass() {
-    size_t size = frequency_response.size();
-    for (int i = 0; i < size; i++) {
-        float freq = static_cast<float>(i) * MAX_FREQ / size;
-        if (freq < lowpass.cutoff)
-            frequency_response[i] = 1;
-        else {
-            frequency_response[i] = interpolateAttenuation(lowpass.attenuation, freq, lowpass.cutoff);
-        }
+    if (erase_idx >= 0) {
+        //TODO: add deletion
     }
-    return frequency_response;
-}
 
-std::vector<float> &EqualizerView::calculateHighpass() {
-    size_t size = frequency_response.size();
-    for (int i = 0; i < size; i++) {
-        float freq = static_cast<float>(i) * MAX_FREQ / size;
-        if (freq > highpass.cutoff)
-            frequency_response[i] = 1;
-        else {
-            frequency_response[i] = interpolateAttenuation(-highpass.attenuation, freq, highpass.cutoff);
-        }
+    ImGui::PopItemFlag();
+
+    const char * const ADD_EFFECT_POPUP = "ADD_EFFECT_POPUP";
+    if (ImGui::Button("Add effect")) {
+        ImGui::OpenPopup(ADD_EFFECT_POPUP);
     }
-    return frequency_response;
-}
 
-std::vector<float> &EqualizerView::calculateBandpass() {
-    size_t size = frequency_response.size();
-    for (int i = 0; i < size; i++) {
-        float freq = static_cast<float>(i) * MAX_FREQ / size;
-        if (freq < bandpass.left_cutoff) {
-            frequency_response[i] =
-                interpolateAttenuation(-bandpass.left_attenuation, freq, bandpass.left_cutoff);
+    if (ImGui::BeginPopup(ADD_EFFECT_POPUP)) {
+        // TODO: VERY BAD DESIGN
+        if (ImGui::Button("Biquad filter")) {
+            std::unique_ptr<BiquadFilter> kernel = std::make_unique<BiquadFilter>();
+            std::unique_ptr<IEffectView> view = std::make_unique<BiquadSettings>(kernel.get());
+            effects.emplace_back(std::unique_ptr<IDspKernel>(std::move(kernel)), std::move(view));
+            effects.back().name = "Biquad filter";
+            ImGui::EndPopup();
         } else
-        if (freq > bandpass.right_cutoff) {
-            frequency_response[i] =
-                interpolateAttenuation(bandpass.right_attenuation, freq, bandpass.right_cutoff);
-        } else {
-            frequency_response[i] = 1;
-        }
-    }
-    return frequency_response;
-}
-
-std::vector<float> &EqualizerView::calculateRejector() {
-
-    size_t size = frequency_response.size();
-    for (int i = 0; i < size; i++) {
-        float freq = static_cast<float>(i) * MAX_FREQ / size;
-        if (freq < rejector.left_cutoff || freq > rejector.right_cutoff) {
-            frequency_response[i] = 1;
-        } else {
-            frequency_response[i] = std::min(
-                interpolateAttenuation(rejector.left_attenuation, freq, rejector.left_cutoff),
-                interpolateAttenuation(-rejector.right_attenuation, freq, rejector.right_cutoff));
-
-        }
-    }
-    return frequency_response;
-}
-
-std::vector<float> &EqualizerView::calculateKBand() {
-
-    int left_band_idx = 0;
-    float left_band_lfreq = kband.bands[left_band_idx].freq_log;
-    float right_band_lfreq = kband.bands[left_band_idx + 1].freq_log;
-
-    float gain_db_left  = kband.bands[left_band_idx].gain_db;
-    float gain_db_right = kband.bands[left_band_idx + 1].gain_db;
-
-    size_t size = frequency_response.size();
-    for (int i = 0; i < size; i++) {
-        float freq = std::max(MIN_FREQ, static_cast<float>(i) * MAX_FREQ / size);
-        float log_freq = freqToLog(freq);
-
-        if (log_freq > right_band_lfreq) {
-            left_band_idx++;
-
-            left_band_lfreq = kband.bands[left_band_idx].freq_log;
-            right_band_lfreq = kband.bands[left_band_idx + 1].freq_log;
-
-            gain_db_left  = kband.bands[left_band_idx].gain_db;
-            gain_db_right = kband.bands[left_band_idx + 1].gain_db;
-        }
-
-        float k = (gain_db_right - gain_db_left) / (right_band_lfreq - left_band_lfreq);
-        float gain_db = gain_db_left + k * (log_freq - left_band_lfreq);
-        frequency_response[i] = dbToGain(gain_db);
-    }
-    return frequency_response;
-
-}
-
-void TimelineView::DrawEqSettings(bool *enable, Equalizer &eq, EqualizerView &settings) {
-    ImGui::Checkbox("On", enable);
-
-    settings.setResponseSize(eq.getSize());
-
-    const char * const EQ_TABS = "EQ_TAB_BAR";
-     if (ImGui::BeginTabBar(EQ_TABS)) {
-        if (ImGui::BeginTabItem("Lowpass")) {
-            settings.DrawLowpass();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Highpass")) {
-            settings.DrawHighpass();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Bandpass")) {
-            settings.DrawBandpass();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Rejector")) {
-            settings.DrawRejector();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("k-band")) {
-            settings.DrawKBand();
-            ImGui::EndTabItem();
-        }
-
-        ImGui::EndTabBar();
-    }
-
-    ImGui::Text("Response graph");
-    float max_value =
-        std::max(1.0f, *std::max_element(settings.frequency_response.begin(), settings.frequency_response.end()));
-    ImGui::PlotLines("##Response", settings.frequency_response.data(), settings.frequency_response.size(),
-        0, nullptr, 0, max_value, ImVec2(0, ImGui::GetFrameHeight() * 3));
-    if (ImGui::Button("Apply")) {
-        settings.saveAppliedPreset();
-
-        eq.setFreqResponse(settings.frequency_response);
-    }
-
-
-}
-
-void TimelineView::DrawPitchSettings(bool *enable, PitchShifter &pitch_shift) {
-    float stretch = pitch_shift.getStretch();
-
-    if (ImGui::DragFloat("Stretch", &stretch, 0.05, 0.1, 10)) {
-        pitch_shift.setStretch(stretch);
+        // TODO: HARDCODED Block size
+        if (ImGui::Button("FFT Equalizer")) {
+            std::unique_ptr<FFT_Equalizer> kernel = std::make_unique<FFT_Equalizer>(RENDER_BLOCK_SIZE);
+            std::unique_ptr<IEffectView> view = std::make_unique<FFT_EqualizerView>(kernel.get());
+            effects.emplace_back(std::unique_ptr<IDspKernel>(std::move(kernel)), std::move(view));
+            effects.back().name = "FFT Equalizer";
+            ImGui::EndPopup();
+        } else
+            ImGui::EndPopup();
     }
 }
+
+
+// void TimelineView::DrawPitchSettings(bool *enable, PitchShifter &pitch_shift) {
+//     float stretch = pitch_shift.getStretch();
+
+//     if (ImGui::DragFloat("Stretch", &stretch, 0.05, 0.1, 10)) {
+//         pitch_shift.setStretch(stretch);
+//     }
+// }
 
 
 
@@ -757,27 +613,17 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
     // track name
     ID_GUARD(&track.id, ImGui::InputText("", &style.name); );
 
-    const char * const EQ_POPUP = "EQ_POPUP";
-    const char * const PITCH_POPUP = "PITCH_POPUP";
+    const char * const FX_MENU_POPUP = "FX_MENU_POPUP";
     ID_GUARD(&track.enable_eq,
 
-        if (ImGui::Button("Eq"))
-            ImGui::OpenPopup(EQ_POPUP);
+        if (ImGui::Button("Fx"))
+            ImGui::OpenPopup(FX_MENU_POPUP);
 
-        // ImGui::SameLine();
-        // if (ImGui::Button("Pitch"))
-        //     ImGui::OpenPopup(PITCH_POPUP);
-
-        if (ImGui::BeginPopup(EQ_POPUP)) {
-            // TODO: use getter instead of direct access to map of equalizer settings
-            DrawEqSettings(&track.enable_eq, track.equalizer, equalizer_settings[track.id]);
+        if (ImGui::BeginPopup(FX_MENU_POPUP)) {
+            DrawFxMenu(track.effects_);
             ImGui::EndPopup();
         }
 
-        // if (ImGui::BeginPopup(PITCH_POPUP)) {
-        //     DrawPitchSettings(&track.enable_eq, track.pitch);
-        //     ImGui::EndPopup();
-        // }
     );
 
     ImGui::SameLine();

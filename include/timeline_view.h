@@ -1,5 +1,6 @@
 #pragma once
 
+#include "audio_effects.h"
 #include "common.h"
 
 #include "imgui.h"
@@ -127,8 +128,6 @@ class TimelineView {
 
     std::unordered_map<ClipId_t, ClipView> clip_view;
     std::unordered_map<TrackId_t, TrackView> track_view;
-    //TODO: store EffectId to enable multiple equalizers for each track
-    std::unordered_map<TrackId_t, EqualizerView> equalizer_settings;
 
     TimelineClipboard clipboard;
 
@@ -278,8 +277,7 @@ private:
 
     // ======== DRAWING ==============
 
-    void DrawEqSettings(bool *enable, Equalizer &eq, EqualizerView &settings);
-    void DrawPitchSettings(bool *enable, PitchShifter &pitch);
+    void DrawFxMenu(std::vector<EffectSlot> &effects);
 
     void DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2 canvas_size);
 

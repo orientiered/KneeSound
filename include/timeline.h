@@ -13,11 +13,6 @@
 
 namespace waves {
 
-// Db to linear conversion
-inline float dbToGain(float db) {
-    return std::pow(10.0f, db / 20.0f);
-}
-
 // Simple clamping
 inline float clampSample(float sample, float threshold = 0.99f) {
     if (sample > threshold) return threshold;
@@ -275,8 +270,7 @@ public:
     bool  mute = false;
 
     bool enable_eq = false;
-    FreqDomainEffect fft_pipeline;
-    Equalizer equalizer;
+    std::vector<EffectSlot> effects_;
     // PitchShifter  pitch;
     // ================ Methods ================================
 
@@ -296,9 +290,7 @@ public:
     }
 
     Track(std::mutex& mtx_) :
-        rendering_buffer(mtx_, START_RENDER_BUFFER_SIZE, INNER_CHANNELS),
-        fft_pipeline(render_block_size, INNER_CHANNELS),
-        equalizer(render_block_size)
+        rendering_buffer(mtx_, START_RENDER_BUFFER_SIZE, INNER_CHANNELS)
     {
         setUniqueId();
     }

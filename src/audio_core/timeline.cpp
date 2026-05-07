@@ -1,7 +1,7 @@
-#include "timeline.h"
-#include "buffer_utils.h"
 #include "common.h"
-#include "editor.h"
+#include "timeline.h"
+#include "audio_effects.h"
+#include "buffer_utils.h"
 
 namespace waves {
 
@@ -267,16 +267,20 @@ const AudioBuffer& Track::renderBlock(ma_uint64 start_frame) {
         }
     }
 
-    if (enable_eq)
-        fft_pipeline.processBlock(buf, equalizer);
-    // if (enable_eq)
-    //     fft_pipeline.processBlock(buf.data(), pitch);
+    for (EffectSlot &effect : effects_) {
+        effect.kernel->process(buf, buf);
+    }
 
     return rendering_buffer.writerSentReadyBuffer();
 }
 
 size_t Track::getLatency() {
-    return fft_pipeline.getLatency() * enable_eq;
+    size_t latency = 0;
+    for (const EffectSlot& effect: effects_) {
+        latency += effect.kernel->getLatencySamples();
+    }
+
+    return latency;
 }
 
 /* ================= Timeline =================== */
