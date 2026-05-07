@@ -516,8 +516,7 @@ void TimelineView::DrawFxMenu(std::vector<EffectSlot> &effects) {
     for (int n = 0; n < len; n++)
     {
         ImGui::IdGuard ig(n);
-        ImGui::SetNextItemAllowOverlap();
-        ImGui::Selectable(effects[n].name.c_str());
+        ImGui::Selectable(effects[n].name.c_str(), false, ImGuiSelectableFlags_NoAutoClosePopups | ImGuiSelectableFlags_AllowOverlap);
 
         bool is_dragged = ImGui::IsItemActive() && !ImGui::IsItemHovered();
 
@@ -567,17 +566,17 @@ void TimelineView::DrawFxMenu(std::vector<EffectSlot> &effects) {
             std::unique_ptr<IEffectView> view = std::make_unique<BiquadSettings>(kernel.get());
             effects.emplace_back(std::unique_ptr<IDspKernel>(std::move(kernel)), std::move(view));
             effects.back().name = "Biquad filter";
-            ImGui::EndPopup();
-        } else
+            ImGui::CloseCurrentPopup();
+        }
         // TODO: HARDCODED Block size
         if (ImGui::Button("FFT Equalizer")) {
             std::unique_ptr<FFT_Equalizer> kernel = std::make_unique<FFT_Equalizer>(RENDER_BLOCK_SIZE);
             std::unique_ptr<IEffectView> view = std::make_unique<FFT_EqualizerView>(kernel.get());
             effects.emplace_back(std::unique_ptr<IDspKernel>(std::move(kernel)), std::move(view));
             effects.back().name = "FFT Equalizer";
-            ImGui::EndPopup();
-        } else
-            ImGui::EndPopup();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 }
 

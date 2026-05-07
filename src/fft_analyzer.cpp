@@ -5,6 +5,7 @@
 #include "kiss_fftr.h"
 #include "fft_utils.h"
 #include "imgui.h"
+#include "misc_utils.h"
 #include <algorithm>
 
 namespace waves {
@@ -107,6 +108,7 @@ void FFT_Analyzer::analyzeBuffer() {
     // applying window and fft
     wfftr.forward(temp_in.data() , temp_out.data() );
 
+    log_amps = convertToDoubleLogScale(temp_out, INNER_SAMPLE_RATE, nfft);
 
     amps.resize(temp_out.size(), 0);
     for (uint32_t idx = 0; idx < amps.size(); idx++) {
@@ -166,6 +168,9 @@ void FFT_Analyzer::DrawAnalyzed() {
         window_count)) {
         window_type = window_types[window_idx];
     }
+
+    ImGui::PlotHistogram("##spectr3", log_amps.data(), log_amps.size(),
+            0, NULL, 0.0f, 1/scale, ImVec2(0, 150.0f));
 
     static std::vector<float> amps_bin;
     amps_bin.resize(bins);

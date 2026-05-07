@@ -75,6 +75,106 @@ BiquadSettings::Coeffs BiquadSettings::makePeaking(double fc, double Q, double g
     return Coeffs(b0, b1, b2, a0, a1, a2);
 }
 
+BiquadSettings::Coeffs BiquadSettings::calculateCoeffs() {
+    switch(preset) {
+        case LOWPASS:
+            return makeLPF(central_freq, Q, gainDb, sample_freq);
+        case HIGHPASS:
+            return makeHPF(central_freq, Q, gainDb, sample_freq);
+        case BANDPASS:
+            return makeBPF(central_freq, Q, gainDb, sample_freq);
+        case NOTCH:
+            return makeNotch(central_freq, Q, gainDb, sample_freq);
+        case PEAKING:
+            return makePeaking(central_freq, Q, gainDb, sample_freq);
+        default:
+            return {1.0, 0, 0, 0, 0};
+    }
+}
+
+void BiquadSettings::updateFreqResponse() {
+    const size_t points = log_freq_response.size();
+
+    RBJ_Params p(central_freq, Q, gainDb, sample_freq);
+
+    auto cmod = [] (double re, double im) {
+        return sqrt(re*re + im * im);
+    };
+
+    auto cvt2Db = [](float gain) -> float {
+        return 20 * std::log10(std::max(gain, 1e-10f));
+    };
+
+    auto calcAnalogResponse = [&] (Preset preset, double freq) -> float {
+        double s = freq / central_freq;  // / sample_freq; // s = j * w / w0
+        switch(preset) {
+            case LOWPASS:
+                // H(s) = 1 / (s^2 + s/Q + 1)
+                return 1. / cmod(1-s*s, s / Q);
+            case HIGHPASS:
+                // H(s) = s^2 / (s^2 + s/Q + 1)
+                return s*s / cmod(1-s*s, s / Q);
+            case BANDPASS:
+                // H(s) = s / (s^2 + s/Q + 1)  (constant skirt gain, peak gain = Q)
+                return s / cmod(1-s*s, s / Q);
+            case NOTCH:
+                // H(s) = (s^2 + 1) / (s^2 + s/Q + 1)
+                return (1 - s*s) / cmod(1-s*s, s / Q);
+            case PEAKING:
+                // H(s) = (s^2 + s*(A/Q) + 1) / (s^2 + s/(A*Q) + 1)
+                return cmod(1-s*s, s * (p.A / Q)) / cmod(1-s*s, s / (p.A * Q));;
+            default:
+                return 1.0;
+        }
+    };
+
+    auto calcDigitalResponse = [&](Coeffs cfs, double freq) -> float {
+        double omega = 2.0 * M_PI * freq / sample_freq;  // нормированная частота [0, π]
+
+        // z⁻¹ = e^(-jω) = cos(ω) - j·sin(ω)
+        double cos_omega = std::cos(omega);
+        double sin_omega = std::sin(omega);
+
+        // z⁻² = e^(-j2ω) = cos(2ω) - j·sin(2ω)
+        double cos_2omega = std::cos(2.0 * omega);
+        double sin_2omega = std::sin(2.0 * omega);
+
+        // Числитель: b0 + b1·z⁻¹ + b2·z⁻²
+        double num_re = cfs.f1 + cfs.f2 * cos_omega + cfs.f3 * cos_2omega;
+        double num_im =        - cfs.f2 * sin_omega - cfs.f3 * sin_2omega;  // j-часть с минусом
+
+        // Знаменатель: 1 + a1·z⁻¹ + a2·z⁻²
+        double den_re = 1.0 + cfs.g1 * cos_omega + cfs.g2 * cos_2omega;
+        double den_im =        - cfs.g1 * sin_omega - cfs.g2 * sin_2omega;
+
+        // |H(z)| = |num| / |den|
+        double num_mag = cmod(num_re, num_im);
+        double den_mag = cmod(den_re, den_im);
+
+        return static_cast<float>(num_mag / std::max(den_mag, 1e-10));
+    };
+
+
+    double min_freq = 20.0f;
+    double max_freq = sample_freq / 2.0f;
+
+    Coeffs cfs = calculateCoeffs();
+
+    for (int i = 0; i < points; i++) {
+        double freq  = min_freq * std::pow(max_freq / min_freq, static_cast<double>(i) / (points-1));
+
+        freq = std::clamp(freq, min_freq, max_freq * 0.999);
+
+        if (digitalResponse) {
+            log_freq_response[i] = cvt2Db(calcDigitalResponse(cfs, freq));
+        } else {
+            log_freq_response[i] = cvt2Db(calcAnalogResponse(preset, freq));
+        }
+    }
+
+    // PLOG_DEBUG << log_freq_response;
+}
+
 void BiquadSettings::DrawSettings() {
     bool modified = false;
 
@@ -86,40 +186,31 @@ void BiquadSettings::DrawSettings() {
         "Peaking"
     };
 
-
     if (ImGui::ListBox("Filter type", reinterpret_cast<int*>(&preset), filter_type_str, 5)) {
         modified = true;
     }
 
-    modified |= ImGui::SliderFloat("Central freq", &central_freq, 0, static_cast<float>(INNER_SAMPLE_RATE) / 2, "%.0f Hz");
-    modified |= ImGui::SliderFloat("Q", &Q, 0, 10000, "%.1f", ImGuiSliderFlags_Logarithmic);
-    modified |= ImGui::SliderFloat("Gain", &gainDb, -30, +40, "%.1f db");
+    modified |= ImGui::DragFloat("Central freq", &central_freq, 2.0, 0, static_cast<float>(INNER_SAMPLE_RATE) / 2, "%.0f Hz");
+    modified |= ImGui::DragFloat("Q", &Q, 2.0, 0, 10000, "%.1f", ImGuiSliderFlags_Logarithmic);
+
+    if (preset == PEAKING) {
+        // other types do not use gain
+        modified |= ImGui::DragFloat("Gain", &gainDb, 0.4, -30, +40, "%.1f db");
+    }
 
     if (modified) {
-        Coeffs cfs;
-
-        switch(preset) {
-            case LOWPASS:
-                cfs = makeLPF(central_freq, Q, gainDb, sample_freq);
-                break;
-            case HIGHPASS:
-                cfs = makeHPF(central_freq, Q, gainDb, sample_freq);
-                break;
-            case BANDPASS:
-                cfs = makeBPF(central_freq, Q, gainDb, sample_freq);
-                break;
-            case NOTCH:
-                cfs = makeNotch(central_freq, Q, gainDb, sample_freq);
-                break;
-            case PEAKING:
-                cfs = makePeaking(central_freq, Q, gainDb, sample_freq);
-                break;
-            default:
-                break;
-        }
-
-        bqf->setCoefficients(cfs.f1, cfs.f2, cfs.f3, cfs.g1, cfs.g2);
+        updateKernelCoeffs();
     }
+
+    ImGui::PlotLines("Frequency response", log_freq_response.data(), log_freq_response.size(),
+        0, nullptr, -100, 10, ImVec2(0, ImGui::GetFrameHeight() * 4));
+
+    ImGui::Text("Uncheck to see analog prototype response");
+    if (ImGui::Checkbox("Analog/Digital", &digitalResponse)) {
+        updateFreqResponse();
+    }
+
+
 }
 
 

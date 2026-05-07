@@ -4,27 +4,33 @@
 #include "imgui.h"
 #include "imgui_misc.h"
 
+#include "misc_utils.h"
+
 namespace waves {
 
-void FFT_EqualizerView::DrawLowpass() {
+bool FFT_EqualizerView::DrawLowpass() {
     ImGui::IdGuard ig(&lowpass);
     bool modified = setPreset(LOWPASS);
     modified |= ImGui::DragFloat("Cutoff", &lowpass.cutoff, 3, MIN_FREQ, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
     modified |= ImGui::DragFloat("Attenuation", &lowpass.attenuation, 1, 0, 100, "%.2f");
     if (modified)
         calculateLowpass();
+
+    return modified;
 }
 
-void FFT_EqualizerView::DrawHighpass() {
+bool FFT_EqualizerView::DrawHighpass() {
     ImGui::IdGuard ig(&highpass);
     bool modified = setPreset(HIGHPASS);
     modified |= ImGui::DragFloat("Cutoff", &highpass.cutoff, 3, MIN_FREQ, MAX_FREQ, "%.2f", ImGuiSliderFlags_Logarithmic);
     modified |= ImGui::DragFloat("Attenuation", &highpass.attenuation, 1, 0, 100, "%.2f");
     if (modified)
         calculateHighpass();
+
+    return modified;
 }
 
-void FFT_EqualizerView::DrawBandpass() {
+bool FFT_EqualizerView::DrawBandpass() {
     bool modified = setPreset(BANDPASS);
     ImGui::IdGuard ig(&bandpass);
     modified |= ImGui::DragFloat("Cutoff left", &bandpass.left_cutoff, 3, MIN_FREQ, bandpass.right_cutoff, "%.2f", ImGuiSliderFlags_Logarithmic);
@@ -34,9 +40,11 @@ void FFT_EqualizerView::DrawBandpass() {
 
     if (modified)
         calculateBandpass();
+
+    return modified;
 }
 
-void FFT_EqualizerView::DrawRejector() {
+bool FFT_EqualizerView::DrawRejector() {
     bool modified = setPreset(REJECTOR);
     ImGui::IdGuard ig(&rejector);
     modified |= ImGui::DragFloat("Cutoff left", &rejector.left_cutoff, 3, MIN_FREQ, rejector.right_cutoff, "%.2f", ImGuiSliderFlags_Logarithmic);
@@ -47,9 +55,11 @@ void FFT_EqualizerView::DrawRejector() {
 
     if (modified)
         calculateRejector();
+
+    return modified;
 }
 
-void FFT_EqualizerView::DrawKBand() {
+bool FFT_EqualizerView::DrawKBand() {
     bool modified = setPreset(KBAND);
     ImGui::IdGuard ig(&kband);
 
@@ -83,6 +93,7 @@ void FFT_EqualizerView::DrawKBand() {
     if (modified)
         calculateKBand();
 
+    return modified;
 }
 
 /*
@@ -197,36 +208,50 @@ void FFT_EqualizerView::DrawSettings() {
     setResponseSize(eq->getSize());
 
     const char * const EQ_TABS = "EQ_TAB_BAR";
+    bool modified = false;
+
      if (ImGui::BeginTabBar(EQ_TABS)) {
         if (ImGui::BeginTabItem("Lowpass")) {
-            DrawLowpass();
+            modified |= DrawLowpass();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Highpass")) {
-            DrawHighpass();
+            modified |= DrawHighpass();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Bandpass")) {
-            DrawBandpass();
+            modified |= DrawBandpass();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Rejector")) {
-            DrawRejector();
+            modified |= DrawRejector();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("k-band")) {
-            DrawKBand();
+            modified |= DrawKBand();
             ImGui::EndTabItem();
         }
 
         ImGui::EndTabBar();
     }
 
+
+    if (modified) {
+        log_freq_response = convertToDoubleLogScale(frequency_response, INNER_SAMPLE_RATE, frequency_response.size());
+    }
     ImGui::Text("Response graph");
-    float max_value =
-        std::max(1.0f, *std::max_element(frequency_response.begin(), frequency_response.end()));
-    ImGui::PlotLines("##Response", frequency_response.data(), frequency_response.size(),
-        0, nullptr, 0, max_value, ImVec2(0, ImGui::GetFrameHeight() * 3));
+    if (useLogResponse) {
+        ImGui::PlotLines("##Response", log_freq_response.data(), log_freq_response.size(),
+            0, nullptr, -100, FLT_MAX, ImVec2(0, ImGui::GetFrameHeight() * 4));
+    } else {
+        float max_value =
+            std::max(1.0f, *std::max_element(frequency_response.begin(), frequency_response.end()));
+        ImGui::PlotLines("##Response", frequency_response.data(), frequency_response.size(),
+            0, nullptr, 0, max_value, ImVec2(0, ImGui::GetFrameHeight() * 4));
+    }
+
+    ImGui::Checkbox("Log scale", &useLogResponse);
+
     if (ImGui::Button("Apply")) {
         saveAppliedPreset();
 

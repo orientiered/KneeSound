@@ -122,11 +122,14 @@ private:
     }
 public:
     std::vector<float> frequency_response;
-    void DrawLowpass();
-    void DrawHighpass();
-    void DrawBandpass();
-    void DrawRejector();
-    void DrawKBand();
+    std::vector<float> log_freq_response;
+    bool useLogResponse = true;
+
+    bool DrawLowpass();
+    bool DrawHighpass();
+    bool DrawBandpass();
+    bool DrawRejector();
+    bool DrawKBand();
 
     void setResponseSize(size_t size);
     void saveAppliedPreset() { applied_preset = preset; }

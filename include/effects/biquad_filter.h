@@ -104,6 +104,10 @@ private:
 
     float central_freq = 1000, Q = 1, gainDb = 10;
     float sample_freq = INNER_SAMPLE_RATE;
+
+    const size_t FREQ_RESPONSE_POINTS = 150;
+    bool digitalResponse = true; // false -> use analog filter
+    std::vector<float> log_freq_response;
 public:
     // coeffs calculating
     Coeffs makeLPF(double fc, double Q, double gainDb, double fs);
@@ -111,10 +115,23 @@ public:
     Coeffs makeBPF(double fc, double Q, double gainDb, double fs);
     Coeffs makeNotch(double fc, double Q, double gainDb, double fs);
     Coeffs makePeaking(double fc, double Q, double gainDb, double fs);
+    // calculate based on current preset
+    Coeffs calculateCoeffs();
 
     void DrawSettings() override;
-    // std::vector<float> frequency_response;
-    BiquadSettings(BiquadFilter *filter): bqf(filter) {}
+    BiquadSettings(BiquadFilter *filter): bqf(filter), log_freq_response(FREQ_RESPONSE_POINTS) {
+        updateKernelCoeffs();
+    }
+
+    // recalc log_freq_response
+    void updateFreqResponse();
+
+    void updateKernelCoeffs() {
+        Coeffs cfs = calculateCoeffs();
+        bqf->setCoefficients(cfs.f1, cfs.f2, cfs.f3, cfs.g1, cfs.g2);
+        updateFreqResponse();
+    }
+
     ~BiquadSettings() override = default;
 private:
     BiquadFilter *bqf = nullptr;
