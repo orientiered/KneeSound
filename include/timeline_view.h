@@ -132,12 +132,14 @@ class TimelineView {
     TimelineClipboard clipboard;
 
     TimeLine &timeline_; /// < Viewed timeline
+    PluginManager &plugin_manager_;
 public:
 
     FFT_Analyzer analyzer;
 
-    TimelineView(TimeLine &timeline, float scale):
+    TimelineView(TimeLine &timeline, PluginManager &plugin_manager, float scale):
         timeline_(timeline),
+        plugin_manager_(plugin_manager),
         pixels_per_frame(scale), scroll_frame(0)
     {}
 
@@ -277,7 +279,7 @@ private:
 
     // ======== DRAWING ==============
 
-    void DrawFxMenu(std::vector<EffectSlot> &effects);
+    void DrawFxMenu(EffectChain &effect_chain);
 
     void DrawTimeGrid(ImDrawList *draw_list, ImVec2 canvas_pos, ImVec2 canvas_size);
 

@@ -269,8 +269,7 @@ public:
     float pan = 0;
     bool  mute = false;
 
-    bool enable_eq = false;
-    std::vector<EffectSlot> effects_;
+    EffectChain effects_;
     // PitchShifter  pitch;
     // ================ Methods ================================
 

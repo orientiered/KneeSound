@@ -7,6 +7,7 @@
 #include "imgui_misc.h"
 
 #include "playback_controller.h"
+#include <functional>
 #include <imgui.h>
 #include <memory>
 
@@ -501,7 +502,7 @@ bool TimelineView::HandleVerticalClipDrag(ClipId_t clip_id) {
 
 /* ======================== DRAWING ======================================= */
 
-void TimelineView::DrawFxMenu(std::vector<EffectSlot> &effects) {
+void TimelineView::DrawFxMenu(EffectChain &effect_chain) {
     ImGui::SeparatorText("Effects");
 
     // Adapted from ImGui Demo
@@ -510,13 +511,16 @@ void TimelineView::DrawFxMenu(std::vector<EffectSlot> &effects) {
     const char * const EFFECT_SETTINGS_POPUP = "EFFECT_SETTINGS_POPUP";
 
     // Simple reordering
-    size_t len = effects.size();
+    auto chain_ptr = effect_chain.getChain();
+    EffectChain::Chain &effects = *chain_ptr;
+
+    size_t len = chain_ptr->size();
     int erase_idx = -1;
 
     for (int n = 0; n < len; n++)
     {
         ImGui::IdGuard ig(n);
-        ImGui::Selectable(effects[n].name.c_str(), false, ImGuiSelectableFlags_NoAutoClosePopups | ImGuiSelectableFlags_AllowOverlap);
+        ImGui::Selectable(effects[n]->name.c_str(), false, ImGuiSelectableFlags_NoAutoClosePopups | ImGuiSelectableFlags_AllowOverlap);
 
         bool is_dragged = ImGui::IsItemActive() && !ImGui::IsItemHovered();
 
@@ -527,7 +531,7 @@ void TimelineView::DrawFxMenu(std::vector<EffectSlot> &effects) {
         }
 
         if (ImGui::BeginPopup(EFFECT_SETTINGS_POPUP)) {
-            effects[n].view->DrawSettings();
+            effects[n]->view->DrawSettings();
             ImGui::EndPopup();
         }
 
@@ -541,7 +545,10 @@ void TimelineView::DrawFxMenu(std::vector<EffectSlot> &effects) {
             int n_next = n + (ImGui::GetMouseDragDelta(0).y < 0.f ? -1 : 1);
             if (n_next >= 0 && n_next < len)
             {
-                std::swap(effects[n], effects[n_next]);
+                effect_chain.modify([n, n_next](EffectChain::Chain &chain) {
+                    std::swap(chain[n], chain[n_next]);
+                });
+
                 ImGui::ResetMouseDragDelta();
             }
         }
@@ -549,7 +556,9 @@ void TimelineView::DrawFxMenu(std::vector<EffectSlot> &effects) {
     }
 
     if (erase_idx >= 0) {
-        //TODO: add deletion
+        effect_chain.modify([erase_idx](EffectChain::Chain &chain) {
+            chain.erase(chain.begin() + erase_idx);
+        });
     }
 
     ImGui::PopItemFlag();
@@ -560,22 +569,24 @@ void TimelineView::DrawFxMenu(std::vector<EffectSlot> &effects) {
     }
 
     if (ImGui::BeginPopup(ADD_EFFECT_POPUP)) {
-        // TODO: VERY BAD DESIGN
-        if (ImGui::Button("Biquad filter")) {
-            std::unique_ptr<BiquadFilter> kernel = std::make_unique<BiquadFilter>();
-            std::unique_ptr<IEffectView> view = std::make_unique<BiquadSettings>(kernel.get());
-            effects.emplace_back(std::unique_ptr<IDspKernel>(std::move(kernel)), std::move(view));
-            effects.back().name = "Biquad filter";
-            ImGui::CloseCurrentPopup();
+        std::shared_ptr<EffectSlot> new_slot;
+        auto add_effect = [&new_slot](EffectChain::Chain &chain) {
+            if (new_slot)
+                chain.push_back(new_slot);
+        };
+
+        const std::vector<EffectDescriptor> &descriptors = plugin_manager_.listPlugins();
+
+        for (const EffectDescriptor &desc : descriptors) {
+            if (ImGui::Button(desc.name.c_str())) {
+
+                new_slot = plugin_manager_.buildEffect(desc.id);
+                effect_chain.modify(add_effect);
+
+                ImGui::CloseCurrentPopup();
+            }
         }
-        // TODO: HARDCODED Block size
-        if (ImGui::Button("FFT Equalizer")) {
-            std::unique_ptr<FFT_Equalizer> kernel = std::make_unique<FFT_Equalizer>(RENDER_BLOCK_SIZE);
-            std::unique_ptr<IEffectView> view = std::make_unique<FFT_EqualizerView>(kernel.get());
-            effects.emplace_back(std::unique_ptr<IDspKernel>(std::move(kernel)), std::move(view));
-            effects.back().name = "FFT Equalizer";
-            ImGui::CloseCurrentPopup();
-        }
+
         ImGui::EndPopup();
     }
 }
@@ -613,7 +624,7 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
     ID_GUARD(&track.id, ImGui::InputText("", &style.name); );
 
     const char * const FX_MENU_POPUP = "FX_MENU_POPUP";
-    ID_GUARD(&track.enable_eq,
+    ID_GUARD(&track.effects_,
 
         if (ImGui::Button("Fx"))
             ImGui::OpenPopup(FX_MENU_POPUP);

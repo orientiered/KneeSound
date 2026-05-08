@@ -7,7 +7,9 @@
 #include "fft_utils.h"
 #include "algorithm"
 #include <cmath>
+#include <functional>
 #include <memory>
+#include <atomic>
 
 namespace waves {
 
@@ -40,14 +42,73 @@ public:
 };
 
 /* =============== Effect slot with kernel and view ======================================== */
+struct PluginPair {
+  std::unique_ptr<IDspKernel> kernel;
+  std::unique_ptr<IEffectView> view;
+};
+
 class EffectSlot {
 public:
-    EffectSlot(std::unique_ptr<IDspKernel> k, std::unique_ptr<IEffectView> v):
-        kernel(std::move(k)), view(std::move(v)) {}
+    EffectSlot(PluginPair plugin):
+        kernel(std::move(plugin.kernel)), view(std::move(plugin.view)) {}
 
     std::unique_ptr<IDspKernel> kernel;
     std::unique_ptr<IEffectView> view;
     std::string name;
+};
+
+class EffectChain {
+public:
+    using Chain = std::vector<std::shared_ptr<EffectSlot>>;
+    using ChainPtr = std::shared_ptr<Chain>;
+
+    EffectChain() {
+        chain_ptr_.store(std::make_shared<Chain>(), std::memory_order_relaxed);
+    }
+
+    ChainPtr getChain() {
+        return chain_ptr_.load(std::memory_order_acquire);
+    }
+
+    size_t getLatency();
+
+    // Create copy of chain (without copying effects itself), apply fn to it and store new chain
+    void modify(std::function<void(Chain&)> fn);
+private:
+    std::atomic<ChainPtr> chain_ptr_;
+};
+
+// ================ EFFECT CONSTRUCTION ==================================
+
+using EffectId = std::string;
+struct EffectDescriptor {
+    std::string name;
+    std::string version;
+    EffectId id;
+};
+
+class IEffectFactory {
+public:
+    virtual ~IEffectFactory() = default;
+    virtual PluginPair build() = 0;
+    virtual EffectDescriptor getDescriptor() = 0;
+};
+
+class PluginManager {
+    std::vector<std::unique_ptr<IEffectFactory>> factories_;
+
+    std::vector<EffectDescriptor> descriptors_;
+    void updateDescriptors();
+
+public:
+    const std::vector<EffectDescriptor> &listPlugins() {return descriptors_; }
+
+    void addPlugin(std::unique_ptr<IEffectFactory> pluginFactory) {
+        factories_.push_back(std::move(pluginFactory));
+        updateDescriptors();
+    }
+
+    std::shared_ptr<EffectSlot> buildEffect(const EffectId &id);
 };
 
 

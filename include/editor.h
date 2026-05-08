@@ -1,5 +1,6 @@
 #pragma once
 
+#include "audio_effects.h"
 #include "common.h"
 
 #include <mutex>
@@ -23,16 +24,18 @@ public:
 
     std::mutex mtx;
 
+    PluginManager plugin_manager;
 
     MediaPool media_pool;
     TimeLine timeline;
     PlaybackController playback_state;
 
+
     MediaPoolView mp_view;
     TimelineView tl_view;
 
     Exporter_View exporter;
-    
+
     MaAudioPlayer player;
 
     bool show_export_window = false;
@@ -44,19 +47,22 @@ public:
         return;
     }
 
-    Editor(): mtx(), 
-        media_pool(), 
+    Editor(): mtx(),
+        media_pool(),
         timeline(mtx),
         playback_state(mtx, media_pool, timeline),
-        tl_view(timeline, 1e-2),
+        tl_view(timeline, plugin_manager, 1e-2),
         player(ma_format_f32, INNER_CHANNELS, INNER_SAMPLE_RATE, &Editor::data_callback, &playback_state)
     {
+        initPlugins();
         timeline.addTrack();
         // timeline.tracks.resize(1);
         // timeline.tracks.emplace_back();
+
         PLOG_INFO << "Editor class initialized";
     }
 
+    void initPlugins();
     void Draw();
     void DrawExport();
 

@@ -1,12 +1,67 @@
 #include <algorithm>
+#include <memory>
 #include <vector>
 #include "audio_effects.h"
 #include "common.h"
 
-/* ================= Equalizer ================== */
 
 namespace waves {
 
+/* ================= EFFECT CHAIN ================== */
+
+size_t EffectChain::getLatency() {
+    size_t latency = 0;
+    for (std::shared_ptr<EffectSlot> effect : *getChain()) {
+        latency += effect->kernel->getLatencySamples();
+    }
+
+    return latency;
+}
+
+
+void EffectChain::modify(std::function<void(Chain&)> fn) {
+    ChainPtr old = getChain();
+    ChainPtr next = std::make_shared<Chain>();
+    next->reserve(old->size() + 1);
+    for (std::shared_ptr<EffectSlot>& slot : *old) {
+        next->push_back(slot);
+    }
+    fn(*next);
+    chain_ptr_.store(next, std::memory_order_release);
+}
+
+/* ====== EFFECT CONSTRUCTION ======================= */
+
+void PluginManager::updateDescriptors() {
+    descriptors_.clear();
+
+    for (auto &factory: factories_) {
+        if (factory)
+            descriptors_.push_back(factory->getDescriptor());
+    }
+}
+
+std::shared_ptr<EffectSlot> PluginManager::buildEffect(const EffectId &id) {
+    PLOG_DEBUG << "Building plugin with id " << id;
+
+    auto desc_it = std::find_if(descriptors_.begin(), descriptors_.end(),
+        [&id](const EffectDescriptor& desc) {return desc.id == id;} );
+
+    if (desc_it == descriptors_.end()) {
+        PLOG_DEBUG << "Plugin not found";
+        return nullptr;
+    }
+
+    size_t factory_idx = desc_it - descriptors_.begin();
+
+    std::shared_ptr<EffectSlot> result = std::make_shared<EffectSlot>(factories_[factory_idx]->build());
+    result->name = desc_it->name;
+
+    PLOG_DEBUG << "Created plugin " << desc_it->name << " (id:" << id << ")";
+    return result;
+}
+
+/* ================= FFT PIPELINE ================== */
 void FreqDomainPipeline::prepareTimeData(const AudioBuffer &in, size_t ch_idx) {
     // time_data: | previous block | data |
     // 2*hop_size     hop_size      hop_size

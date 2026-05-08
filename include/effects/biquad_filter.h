@@ -137,4 +137,24 @@ private:
     BiquadFilter *bqf = nullptr;
 };
 
+class BiquadFactory: public IEffectFactory {
+public:
+    ~BiquadFactory() override = default;
+    EffectDescriptor getDescriptor() override {
+        return {
+            .name = "Biquad filter",
+            .version = "1.0",
+            .id = "knee_biquad_filter"
+        };
+    }
+
+    PluginPair build() override {
+        std::unique_ptr<BiquadFilter> kernel = std::make_unique<BiquadFilter>();
+        std::unique_ptr<IEffectView> view = std::make_unique<BiquadSettings>(kernel.get());
+
+        return {std::move(kernel), std::move(view)};
+    }
+};
+
+
 }

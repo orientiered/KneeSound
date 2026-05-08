@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio_effects.h"
+#include "common.h"
 
 namespace waves {
 
@@ -144,6 +145,27 @@ public:
     FFT_EqualizerView(FFT_Equalizer *eq_): eq(eq_) {}
 private:
     FFT_Equalizer *eq;
+};
+
+class FFT_EqualizerFactory: public IEffectFactory {
+public:
+    ~FFT_EqualizerFactory() override = default;
+    EffectDescriptor getDescriptor() override {
+        return {
+            .name = "FFT equalizer",
+            .version = "1.0",
+            .id = "knee_fft_equalizer"
+        };
+    }
+
+    PluginPair build() override {
+        // TODO fix hardcoded block size
+        std::unique_ptr<FFT_Equalizer> kernel = std::make_unique<FFT_Equalizer>(RENDER_BLOCK_SIZE);
+        std::unique_ptr<IEffectView> view = std::make_unique<FFT_EqualizerView>(kernel.get());
+
+        return {std::move(kernel), std::move(view)};
+    }
+
 };
 
 

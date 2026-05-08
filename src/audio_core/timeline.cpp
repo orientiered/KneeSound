@@ -2,6 +2,7 @@
 #include "timeline.h"
 #include "audio_effects.h"
 #include "buffer_utils.h"
+#include <memory>
 
 namespace waves {
 
@@ -267,20 +268,16 @@ const AudioBuffer& Track::renderBlock(ma_uint64 start_frame) {
         }
     }
 
-    for (EffectSlot &effect : effects_) {
-        effect.kernel->process(buf, buf);
+    for (std::shared_ptr<EffectSlot> effect : *effects_.getChain()) {
+        if (effect && effect->kernel)
+            effect->kernel->process(buf, buf);
     }
 
     return rendering_buffer.writerSentReadyBuffer();
 }
 
 size_t Track::getLatency() {
-    size_t latency = 0;
-    for (const EffectSlot& effect: effects_) {
-        latency += effect.kernel->getLatencySamples();
-    }
-
-    return latency;
+    return effects_.getLatency();
 }
 
 /* ================= Timeline =================== */

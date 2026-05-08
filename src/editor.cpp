@@ -1,6 +1,9 @@
 #include "editor.h"
 #include "buffer_utils.h"
 #include "common.h"
+#include "effects/biquad_filter.h"
+#include "effects/fft_equalizer.h"
+#include <memory>
 #include <thread>
 
 namespace waves {
@@ -113,6 +116,9 @@ void Editor::Draw() {
     }
 }
 
-
+void Editor::initPlugins() {
+    plugin_manager.addPlugin(std::make_unique<BiquadFactory>());
+    plugin_manager.addPlugin(std::make_unique<FFT_EqualizerFactory>());
+}
 
 } // namespace waves
