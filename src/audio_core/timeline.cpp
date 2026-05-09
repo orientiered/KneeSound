@@ -1,8 +1,7 @@
 #include "common.h"
-#include "timeline.h"
-#include "audio_effects.h"
-#include "buffer_utils.h"
-#include <memory>
+#include "core/timeline.h"
+#include "effects/audio_effects.h"
+#include "utils/buffer_utils.h"
 
 namespace waves {
 

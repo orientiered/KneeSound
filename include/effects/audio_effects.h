@@ -1,15 +1,14 @@
 #pragma once
 
-#include "common.h"
-#include "buffer_utils.h"
-
-#include "kiss_fft.h"
-#include "fft_utils.h"
-#include "algorithm"
 #include <cmath>
 #include <functional>
 #include <memory>
 #include <atomic>
+#include <algorithm>
+
+#include "common.h"
+#include "utils/buffer_utils.h"
+#include "core/fft_utils.h"
 
 namespace waves {
 

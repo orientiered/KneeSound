@@ -1,8 +1,8 @@
 #pragma once
 
 #include "common.h"
-#include "audio_effects.h"
-#include "fft_utils.h"
+#include "effects/audio_effects.h"
+#include "core/fft_utils.h"
 
 
 namespace waves {

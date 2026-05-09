@@ -1,10 +1,10 @@
 
-#include "buffer_utils.h"
+#include "utils/buffer_utils.h"
 #include "common.h"
 #include "effects/fft_analyzer.h"
-#include "fft_utils.h"
+#include "core/fft_utils.h"
 #include "imgui.h"
-#include "misc_utils.h"
+#include "utils/misc_utils.h"
 #include <algorithm>
 
 namespace waves {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "audio_effects.h"
+#include "effects/audio_effects.h"
 #include "common.h"
 
 namespace waves {

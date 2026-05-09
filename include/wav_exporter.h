@@ -1,14 +1,14 @@
 #pragma once
 
+#include <atomic>
 #include <fstream>
 #include "common.h"
-#include "playback_controller.h"
 
 namespace waves {
 
 class Editor;
 
-using encoder_callback_t = 
+using encoder_callback_t =
    void (*)(void *data, audio_sample_t *out, uint64_t start_frame, uint64_t frame_count);
 
 class Exporter {
@@ -17,12 +17,12 @@ class Exporter {
     std::fstream output_file;
     int32_t export_start_frame = 0, export_end_frame = 0;
 
-    uint32_t preferred_render_step = 8192; 
+    uint32_t preferred_render_step = 8192;
     // progress status
     std::atomic<bool> ready = true;
     int32_t current_export_frame_ = 0;
-public: 
-    std::pair<int32_t, int32_t> getExportRange() { 
+public:
+    std::pair<int32_t, int32_t> getExportRange() {
         return {export_start_frame, export_end_frame};
     }
 
@@ -35,7 +35,7 @@ public:
     // set end   frame and return its new value
     int32_t setEndFrame(int32_t frame);
 
-    // Queue current exporting frame 
+    // Queue current exporting frame
     int32_t getEncodingProgress() { return current_export_frame_ - export_start_frame; }
     int32_t getReadyState() { return ready.load(); }
 

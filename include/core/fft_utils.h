@@ -2,6 +2,7 @@
 
 #include "common.h"
 #include "math.h"
+#include "kiss_fft.h"
 #include "kiss_fftr.h"
 
 namespace waves {
@@ -16,18 +17,18 @@ public:
         Hamming,
         Blackman,
     };
-    
+
     static float Rect(size_t n, size_t size) {
         return 1.0f;
     }
-    static float Hann(size_t n, size_t size) { 
+    static float Hann(size_t n, size_t size) {
         return 0.5f * (1.0f - std::cos(2.0f * M_PI * static_cast<float>(n) / static_cast<float>(size) ));
     }
     static float Hamming(size_t n, size_t size) {
         return 0.54f - 0.46f * std::cos(2.0f * M_PI * n / size );
     }
     static float Blackman(size_t n, size_t size) {
-        return 0.42f 
+        return 0.42f
                 - 0.5f  * std::cos(2.0f * M_PI * n / size )
                 + 0.08f * std::cos(4.0f * M_PI * n / size );
     }
@@ -36,7 +37,7 @@ public:
 
     static std::vector<float> generate(Type type, size_t size) {
         std::vector<float> window(size);
-        
+
         window_func_t window_func = &WindowFunction::Rect;
 
         switch (type) {
@@ -50,10 +51,10 @@ public:
         for (size_t n = 0; n < size; n++) {
             window[n] = window_func(n, size);
         }
-        
+
         return window;
     }
-    
+
     // === Применение окна к буферу ===
     template<size_t Tchannels>
     static void applyInPlace(const std::vector<float>& window, float* data, size_t frame_count) {
@@ -64,11 +65,11 @@ public:
             }
         }
     }
-    
+
     template<size_t Tchannels>
-    static void apply(const std::vector<float>& window, 
-                      const float* input, 
-                      float* output, 
+    static void apply(const std::vector<float>& window,
+                      const float* input,
+                      float* output,
                       size_t frame_count) {
         for (size_t i = 0; i < frame_count; i++) {
             for (size_t ch_idx = 0; ch_idx < Tchannels; ch_idx++) {
@@ -85,11 +86,11 @@ private:
     size_t nfft_ = 0;
 
 public:
-    KissFFTR() {} 
+    KissFFTR() {}
     KissFFTR(size_t nfft, bool forward = true, bool inverse = false) {
         if (nfft % 2 != 0)
             throw std::invalid_argument("Nfft must be even");
-    
+
         nfft_ = nfft;
 
         if (forward)
@@ -116,7 +117,7 @@ public:
         kiss_fftri(inverse_cfg, freq_data, time_data);
 
         return true;
-    }  
+    }
 
     void normalize(float *time_data) {
         // normalization
@@ -126,7 +127,7 @@ public:
         }
     }
 
-    KissFFTR(const KissFFTR& other) : 
+    KissFFTR(const KissFFTR& other) :
         KissFFTR(other.nfft_, other.forward_cfg, other.inverse_cfg) {}
 
     KissFFTR& operator=(KissFFTR other) {
@@ -158,7 +159,7 @@ class WindowedKissFFTR {
     WindowFunction::Type window_type_ = WindowFunction::Type::Hann;
 public:
     WindowedKissFFTR() {}
-    WindowedKissFFTR(size_t nfft, WindowFunction::Type window_type, bool forward = true, bool inverse = false): 
+    WindowedKissFFTR(size_t nfft, WindowFunction::Type window_type, bool forward = true, bool inverse = false):
         window_type_(window_type),
         fftr(nfft, forward, inverse) {
         window_ = WindowFunction::generate(window_type, nfft);
@@ -187,7 +188,7 @@ public:
         if (!hasInverse()) return false;
 
         return fftr.inverse(freq_data, time_data);
-    } 
+    }
 
     void normalize(float *time_data) { fftr.normalize(time_data); }
 

@@ -2,17 +2,20 @@
 
 #include <mutex>
 #include "common.h"
-#include "audio_effects.h"
 
 #include "miniaudio.h"
 
-#include "miniaudio_utils.h"
-#include "timeline.h"
-#include "timeline_view.h"
+#include "core/miniaudio_utils.h"
 
-#include "playback_controller.h"
+#include "core/timeline.h"
+#include "core/playback_controller.h"
 
-#include "media_pool_view.h"
+#include "effects/audio_effects.h"
+
+#include "gui/timeline_view.h"
+#include "gui/media_pool_view.h"
+
+
 #include "wav_exporter.h"
 
 namespace waves {

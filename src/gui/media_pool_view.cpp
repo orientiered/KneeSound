@@ -2,7 +2,7 @@
 
 #include "ImGuiFileDialog.h"
 
-#include "media_pool_view.h"
+#include "gui/media_pool_view.h"
 
 #include "imgui_misc.h"
 
@@ -52,7 +52,7 @@ void MediaPoolView::DrawFile(PlaybackController& playback_state, SourceIt it, in
     bool on_current = currentTrack == it;
 
 
-    ID_GUARD(track_idx, 
+    ID_GUARD(track_idx,
         if (ImGui::Button("X")) {
             erase = true;
         }
@@ -67,11 +67,11 @@ void MediaPoolView::DrawFile(PlaybackController& playback_state, SourceIt it, in
     // drag and drop
     if (src->valid && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID) ) {
 
-        AudioSourcePtr data = *it; // Sending audio source 
+        AudioSourcePtr data = *it; // Sending audio source
         ImGui::SetDragDropPayload(POOL_DND, &data, sizeof(AudioSourcePtr));
-        
+
         // Displaying name of the payload
-        ImGui::Text("Clip %s", data->name.c_str()); 
+        ImGui::Text("Clip %s", data->name.c_str());
         ImGui::EndDragDropSource();
     }
 
@@ -122,9 +122,9 @@ void MediaPoolView::DrawOpenedFiles(PlaybackController& playback_state) {
     for (auto it = media_pool.begin(); it != media_pool.end(); it++, track_idx++) {
         bool erase = false;
         DrawFile(playback_state, it, track_idx, erase);
-        if (erase) 
+        if (erase)
             eraseIt = it;
-        
+
     }
 
     if (eraseIt != media_pool.end()) {

@@ -1,6 +1,6 @@
+#include <atomic>
 #include "wav_exporter.h"
 #include <thread>
-#include <atomic>
 
 #include "imgui.h"
 #include "ImGuiFileDialog.h"

@@ -1,13 +1,13 @@
 #pragma once
 
-#include "audio_effects.h"
+#include "effects/audio_effects.h"
 #include "common.h"
 
 #include "imgui.h"
 #include <imgui_internal.h>
 #include <unordered_map>
 
-#include "timeline.h"
+#include "core/timeline.h"
 
 namespace waves {
 

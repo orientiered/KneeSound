@@ -1,7 +1,6 @@
-#include "playback_controller.h"
-#include "buffer_utils.h"
+#include "core/playback_controller.h"
+#include "utils/buffer_utils.h"
 #include "common.h"
-#include "editor.h"
 
 namespace waves {
 

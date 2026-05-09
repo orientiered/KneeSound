@@ -1,8 +1,9 @@
 #include <algorithm>
 #include <memory>
 #include <vector>
-#include "audio_effects.h"
+
 #include "common.h"
+#include "effects/audio_effects.h"
 
 
 namespace waves {

@@ -1,13 +1,14 @@
-#include "audio_effects.h"
-#include "common.h"
+#include <functional>
+#include <memory>
 
-#include "timeline_view.h"
+#include "common.h"
+#include <imgui.h>
 #include "imgui_misc.h"
 
-#include "playback_controller.h"
-#include <functional>
-#include <imgui.h>
-#include <memory>
+#include "effects/audio_effects.h"
+
+#include "core/playback_controller.h"
+#include "gui/timeline_view.h"
 
 namespace waves {
 
