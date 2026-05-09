@@ -268,10 +268,7 @@ const AudioBuffer& Track::renderBlock(ma_uint64 start_frame) {
         }
     }
 
-    for (std::shared_ptr<EffectSlot> effect : *effects_.getChain()) {
-        if (effect && effect->kernel)
-            effect->kernel->process(rendering_buffer, rendering_buffer);
-    }
+    effects_.processBlock(rendering_buffer);
 
     return rendering_buffer;
 }

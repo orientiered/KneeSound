@@ -11,7 +11,10 @@ namespace waves {
 
 size_t EffectChain::getLatency() {
     size_t latency = 0;
-    for (std::shared_ptr<EffectSlot> effect : *getChain()) {
+
+    EffectChain::ChainPtr chain_ptr = getChain();
+
+    for (std::shared_ptr<EffectSlot> effect : *chain_ptr) {
         latency += effect->kernel->getLatencySamples();
     }
 
@@ -23,11 +26,22 @@ void EffectChain::modify(std::function<void(Chain&)> fn) {
     ChainPtr old = getChain();
     ChainPtr next = std::make_shared<Chain>();
     next->reserve(old->size() + 1);
-    for (std::shared_ptr<EffectSlot>& slot : *old) {
+    for (std::shared_ptr<EffectSlot> slot : *old) {
         next->push_back(slot);
     }
     fn(*next);
     chain_ptr_.store(next, std::memory_order_release);
+}
+
+void EffectChain::processBlock(AudioBuffer &in_out) {
+    // ensuring that chain won't be deleted
+    EffectChain::ChainPtr chain_ptr = getChain();
+
+    for (std::shared_ptr<EffectSlot> effect : *chain_ptr) {
+        if (effect && effect->kernel)
+            effect->kernel->process(in_out, in_out);
+    }
+
 }
 
 /* ====== EFFECT CONSTRUCTION ======================= */

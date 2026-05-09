@@ -72,6 +72,8 @@ public:
 
     size_t getLatency();
 
+    void processBlock(AudioBuffer &in_out);
+
     // Create copy of chain (without copying effects itself), apply fn to it and store new chain
     void modify(std::function<void(Chain&)> fn);
 private:
