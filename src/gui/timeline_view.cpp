@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include <imgui.h>
+#include "core/timeline.h"
 #include "imgui_misc.h"
 
 #include "effects/audio_effects.h"
@@ -882,11 +883,81 @@ void TimelineView::HandleInteractions(PlaybackController& playback) {
 
 }
 
+static bool PlayStopWidget(ImVec2 size, bool is_playing) {
+
+    ImGui::IdGuard ig("PlayStopWidget");
+
+    // 1. Create the click target area (InvisibleButton)
+    // This handles the interaction logic (hover, click)
+    bool pressed = ImGui::InvisibleButton("PlayStopButtonArea", size);
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 p_min = ImGui::GetItemRectMin();
+    ImVec2 p_max = ImGui::GetItemRectMax();
+
+    bool hovered = ImGui::IsItemHovered();
+    bool active = ImGui::IsItemActive();
+
+    // 2. Determine Colors and State
+    ImU32 background_color = ImGui::GetColorU32(ImGuiCol_Button);
+    ImU32 highlight_color = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+    ImU32 active_color = ImGui::GetColorU32(ImGuiCol_ButtonActive);
+
+    auto col_lerp = [](ImU32 a, ImU32 b, float t) {
+        ImVec4 a4 = ImGui::ColorConvertU32ToFloat4(a);
+        ImVec4 b4 = ImGui::ColorConvertU32ToFloat4(b);
+        return ImGui::ColorConvertFloat4ToU32(ImLerp(a4, b4, t));
+    };
+
+    // Apply interaction colors (Shadow/Focus effect)
+    if (active) {
+        background_color = col_lerp(background_color, active_color, 0.5f);
+    } else if (hovered) {
+        background_color = col_lerp(background_color, highlight_color, 0.3f);
+    }
+
+    // 3. Draw the Outer Button Shape
+    draw_list->AddRectFilled(p_min, p_max, background_color, 10.0);
+
+    // 4. Draw the Internal Icon
+    ImVec2 icon_size = size * ImVec2(0.5, 0.63);
+    ImVec2 icon_pos = p_min + (size - icon_size) / 2;
+
+    if (!is_playing) {
+        // --- PLAY Icon (Triangle) ---
+        draw_list->AddTriangleFilled(
+            icon_pos,
+            icon_pos + ImVec2(icon_size.x, icon_size.y / 2),
+            icon_pos + ImVec2(0, icon_size.y),
+            IM_COL32(10, 124, 79, 200) // Green
+        );
+    } else {
+        // --- Pause icon ( || ) ---
+        ImVec2 pause_bar_size = icon_size * ImVec2(0.33, 1);
+        ImVec2 sec_pos = icon_pos + icon_size * ImVec2(0.66, 0);
+        draw_list->AddRectFilled(
+            icon_pos, icon_pos + pause_bar_size,
+            IM_COL32(140, 35, 24, 255) // Red
+        );
+        draw_list->AddRectFilled(
+            sec_pos, sec_pos + pause_bar_size,
+            IM_COL32(140, 35, 24, 255) // Red
+        );
+    }
+
+    // 5. Return the click state
+    return pressed;
+}
+
+
 void TimelineView::DrawTimeline(PlaybackController& playback) {
 
     // ImGui::SetNextWindowContentSize(ImVec2(1e6, 0));
     // Timeline over all available space
-    ImGui::BeginChild("Timeline_canvas", ImVec2(0, 0), ImGuiChildFlags_Borders,
+
+   const float footer_height = 200.0f;
+
+    ImGui::BeginChild("Timeline_canvas", ImVec2(0, -footer_height), ImGuiChildFlags_Borders,
         ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_HorizontalScrollbar);
 
     // === 0. Updating drawing state variables
@@ -941,17 +1012,6 @@ void TimelineView::DrawTimeline(PlaybackController& playback) {
 
     HandleInteractions(playback);
 
-    // ===  Bottom Slider ========================
-
-    ImGui::SetCursorScreenPos(global_field_pos + ImVec2{0, field_size.y - ImGui::GetTextLineHeightWithSpacing()});
-    ImGui::SetNextItemWidth(field_size.x);
-    {
-        ImGui::IdGuard ig(&scroll_frame);
-        int slider_scroll = scroll_frame;
-        if (ImGui::SliderInt("##TimelineXSlider", &slider_scroll, 0, 1e6, "", ImGuiSliderFlags_NoInput)) {
-            scroll_frame = slider_scroll;
-        }
-    }
 
     ImGui::EndChild();
 
@@ -970,6 +1030,56 @@ void TimelineView::DrawTimeline(PlaybackController& playback) {
         }
         ImGui::EndDragDropTarget();
     }
+
+    ImGui::BeginChild("Timeline_footer", ImVec2(0, 0), ImGuiChildFlags_Borders,
+        ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_HorizontalScrollbar);
+
+    ImGui::BeginChild("Timeline_fx", ImVec2(track_info_width, 0));
+
+    // gain
+    ID_GUARD(&timeline_.gain_db,
+        ImGui::DragFloat("Gain", &timeline_.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
+    );
+
+    const char * const FX_MENU_POPUP = "FX_MENU_POPUP";
+    ID_GUARD(&timeline_.effects_,
+
+        if (ImGui::Button("Fx"))
+            ImGui::OpenPopup(FX_MENU_POPUP);
+
+        if (ImGui::BeginPopup(FX_MENU_POPUP)) {
+            DrawFxMenu(timeline_.effects_);
+            ImGui::EndPopup();
+        }
+
+    );
+
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+    // ===  Bottom Slider ========================
+    ImGui::BeginChild("Timeline_scroller", ImVec2(0, 0));
+
+    {
+        ImGui::IdGuard ig(&scroll_frame);
+        ImGui::SetNextItemWidth(field_size.x);
+        int slider_scroll = scroll_frame;
+        if (ImGui::SliderInt("##TimelineXSlider", &slider_scroll, 0, 1e6, "", ImGuiSliderFlags_NoInput)) {
+            scroll_frame = slider_scroll;
+        }
+        ImGui::SetItemTooltip("%d:%.3f", frameToMinSec(scroll_frame).first, frameToMinSec(scroll_frame).second);
+    }
+
+    {
+        // ImGui::CursorGuard cg(ImGui::GetCursorScreenPos() + ImVec2(field_size.x/2, 0));
+        if (PlayStopWidget(ImVec2(80, 80), playback.isPlaying)) {
+            playback.handleToggleFromTimeline();
+        }
+    }
+
+    ImGui::EndChild();
+
+    ImGui::EndChild();
 }
 
 } // namespace waves

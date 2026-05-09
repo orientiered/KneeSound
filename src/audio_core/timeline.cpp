@@ -285,15 +285,15 @@ const AudioBuffer& TimeLine::renderBlock(ma_uint64 start_frame) {
     AudioBuffer &buf = rendering_buffer;
     buf.clear();
 
-    float gain = dbToGain(gain_db);
     //TODO: INVALIDATE CACHE IF START_FRAME != NEXT EXPECTED FRAME
     const size_t frame_count = render_block_size;
 
+    // rendering tracks
     for (int track_idx = 0; track_idx < tracks.size(); track_idx++) {
         Track &track = getTrack(track_idx);
         size_t latency = track.getLatency();
 
-        // Pre-fill if rendering non-sequantially
+        // Pre-fill if rendering non-sequentially
         if (start_frame != expected_frame) {
             for (int pre_fill_idx = 0; pre_fill_idx * render_block_size < latency; pre_fill_idx++) {
                 track.renderBlock(start_frame + latency * pre_fill_idx);
@@ -306,12 +306,33 @@ const AudioBuffer& TimeLine::renderBlock(ma_uint64 start_frame) {
             audio_sample_t *ch_out = buf.getChannel(ch);
             const audio_sample_t *ch_track = track_buf[ch];
             for (int i = 0; i < frame_count; i++) {
-                ch_out[i] += ch_track[i] * gain;
+                ch_out[i] += ch_track[i];
             // PLOG_VERBOSE_IF(g_debug_flags.callback_logs) << "timeline_amp: "<< buf[i] <<
                                                             // " track_amp: " << track_buf[i];
             }
         }
     }
+
+    // applying effects (gain + pan)
+    float gain = dbToGain(gain_db);
+
+    float pan_left  = (pan <= 0) ? 1 : (1 - pan);
+    float pan_right = (pan >= 0) ? 1 : (1 + pan);
+
+    auto process_frame = [&](size_t ch, audio_sample_t sample) -> audio_sample_t {
+        float pan = (ch == 0) ? pan_left : pan_right;
+
+        return sample * gain * pan;
+    };
+
+    for (size_t ch = 0; ch < INNER_CHANNELS; ch++) {
+        audio_sample_t *ch_out = buf.getChannel(ch);
+        for (ma_uint64 idx = 0; idx < render_block_size; idx++) {
+            ch_out[idx] = process_frame(ch, ch_out[idx]);
+        }
+    }
+
+    effects_.processBlock(buf);
 
     expected_frame = start_frame + frame_count;
 

@@ -255,7 +255,10 @@ public:
         block_adapter(render_block_size * INNER_CHANNELS * 2),
         interleave_buffer(render_block_size * INNER_CHANNELS) {}
 
-    float gain_db = 0; // master gain
+    float gain_db = 0;
+    float pan = 0;
+
+    EffectChain effects_;
 
     // === Methods ===
     size_t getTrackCount() { return tracks.size(); }
