@@ -8,7 +8,6 @@
 #include <unordered_map>
 
 #include "timeline.h"
-#include "fft_analyzer.h"
 
 namespace waves {
 
@@ -134,8 +133,6 @@ class TimelineView {
     TimeLine &timeline_; /// < Viewed timeline
     PluginManager &plugin_manager_;
 public:
-
-    FFT_Analyzer analyzer;
 
     TimelineView(TimeLine &timeline, PluginManager &plugin_manager, float scale):
         timeline_(timeline),

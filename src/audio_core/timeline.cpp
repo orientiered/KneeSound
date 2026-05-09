@@ -237,16 +237,16 @@ std::optional<Clip> Clip::cut(ma_int64 timeline_pos) {
 
 const AudioBuffer& Track::renderBlock(ma_uint64 start_frame) {
 
-    // clearing buffer and allocating memory if needed
-    AudioBuffer& buf = rendering_buffer.writerGetBuffer(render_block_size, INNER_CHANNELS);
+    // clearing buffer
+    rendering_buffer.clear();
 
     // early out when track is muted
-    if (mute) return rendering_buffer.writerSentReadyBuffer();
+    if (mute) return rendering_buffer;
 
     // rendering clips
     for (int clip_idx = 0; clip_idx < clips.size(); clip_idx++) {
         Clip& clip = clips[clip_idx];
-        clip.renderFrames(buf, start_frame, render_block_size);
+        clip.renderFrames(rendering_buffer, start_frame, render_block_size);
     }
 
     // applying effects (gain + pan)
@@ -262,7 +262,7 @@ const AudioBuffer& Track::renderBlock(ma_uint64 start_frame) {
     };
 
     for (size_t ch = 0; ch < INNER_CHANNELS; ch++) {
-        audio_sample_t *ch_out = buf.getChannel(ch);
+        audio_sample_t *ch_out = rendering_buffer.getChannel(ch);
         for (ma_uint64 idx = 0; idx < render_block_size; idx++) {
             ch_out[idx] = process_frame(ch, ch_out[idx]);
         }
@@ -270,10 +270,10 @@ const AudioBuffer& Track::renderBlock(ma_uint64 start_frame) {
 
     for (std::shared_ptr<EffectSlot> effect : *effects_.getChain()) {
         if (effect && effect->kernel)
-            effect->kernel->process(buf, buf);
+            effect->kernel->process(rendering_buffer, rendering_buffer);
     }
 
-    return rendering_buffer.writerSentReadyBuffer();
+    return rendering_buffer;
 }
 
 size_t Track::getLatency() {
@@ -285,14 +285,13 @@ size_t Track::getLatency() {
 const AudioBuffer& TimeLine::renderBlock(ma_uint64 start_frame) {
     static ma_uint64 expected_frame = 0;
 
-    // clearing buffer and allocating memory if needed
-    AudioBuffer &buf = rendering_buffer.writerGetBuffer(render_block_size, INNER_CHANNELS);
+    // clearing buffer
+    AudioBuffer &buf = rendering_buffer;
+    buf.clear();
 
     float gain = dbToGain(gain_db);
     //TODO: INVALIDATE CACHE IF START_FRAME != NEXT EXPECTED FRAME
     const size_t frame_count = render_block_size;
-
-
 
     for (int track_idx = 0; track_idx < tracks.size(); track_idx++) {
         Track &track = getTrack(track_idx);
@@ -320,7 +319,7 @@ const AudioBuffer& TimeLine::renderBlock(ma_uint64 start_frame) {
 
     expected_frame = start_frame + frame_count;
 
-    return rendering_buffer.writerSentReadyBuffer();
+    return buf;
 }
 
 const std::vector<audio_sample_t> &TimeLine::renderBlockInterleaved(ma_uint64 start_frame) {
@@ -445,7 +444,7 @@ void TimeLine::moveClipToTrack(ClipId_t id, int track_idx) {
 }
 
 void TimeLine::addTrack() {
-    tracks.emplace_back(render_buffer_mtx);
+    tracks.emplace_back();
 }
 
 ClipId_t TimeLine::addClip(const Clip& clip, int track_idx) {

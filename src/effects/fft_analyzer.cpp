@@ -1,7 +1,7 @@
-#include "fft_analyzer.h"
 
 #include "buffer_utils.h"
 #include "common.h"
+#include "effects/fft_analyzer.h"
 #include "fft_utils.h"
 #include "imgui.h"
 #include "misc_utils.h"
@@ -9,80 +9,27 @@
 
 namespace waves {
 
-void FFT_Analyzer::analyzeClip(const Clip &clip) {
-
-    unsubscribe();
-
-    size_t nfft = std::min(1000000ll, clip.getDurationFrames()) & (~1ll);
-
-    auto nextPowerOfTwo = [](size_t n) {
-        n--;
-        n |= n >> 1;
-        n |= n >> 2;
-        n |= n >> 4;
-        n |= n >> 8;
-        n |= n >> 16;
-        n |= n >> 32;
-        n++;
-        return n;
-    };
-
-    nfft = nextPowerOfTwo(nfft) / 2;
-
-
-    PLOG_DEBUG << "Analyzing " << nfft << " frames with fft";
-
-    KissFFTR fftr(nfft, true);
-
-    std::vector<float> cx_in(nfft);
-    std::vector<kiss_fft_cpx> cx_out(nfft / 2 + 1);
-
-    for (uint32_t idx = 0; idx < nfft; idx++) {
-        uint32_t frame = idx + clip.source_start_frame;
-        cx_in[idx] = clip.source->getMonoSampleAmplitude(frame);
+void FFT_Analyzer::process(const AudioBuffer& in, AudioBuffer &out) {
+    if (in != out) {
+        // just copy data
+        for (size_t ch = 0; ch < out.getChannels(); ch++) {
+            std::copy_n(in[ch], out.getFrameCount(), out.getChannel(ch));
+        }
     }
 
-    using namespace std::chrono_literals;
-
-    auto clk_start = std::chrono::high_resolution_clock::now();
-
-    // applying window
-    const std::vector<float> window = WindowFunction::generate(WindowFunction::Type::Hann, nfft);
-    WindowFunction::applyInPlace<1>(window, cx_in.data(), cx_in.size());
-
-    // applying fft
-    fftr.forward(cx_in.data(), cx_out.data());
-
-    auto clk_end = std::chrono::high_resolution_clock::now();
-
-    analyze_time = (clk_end - clk_start) / 1.0s;
-    PLOG_DEBUG << "Fftr took " << analyze_time;
-
-    // const size_t bin_count = std::min(1000ul, cx_out.size() );
-    amps.resize(cx_out.size(), 0);
-
-    for (uint32_t idx = 0; idx < cx_out.size(); idx++) {
-        amps[idx ] += std::sqrt(cx_out[idx].r * cx_out[idx].r + cx_out[idx].i * cx_out[idx].i);
+    AudioBuffer &buf = buffer_.writerGetBuffer(in.getFrameCount(), in.getChannels());
+    // copying to buffer that is accesible by gui thread
+    for (size_t ch = 0; ch < in.getChannels(); ch++) {
+        std::copy_n(in[ch], in.getFrameCount(), buf.getChannel(ch));
     }
+    buffer_.writerSentReadyBuffer();
 
-    size_t max_idx = std::max_element(amps.begin(), amps.end()) - amps.begin();
-    float max_amp = amps[max_idx];
-    // normalizing values
-    for (uint32_t idx = 0; idx < amps.size(); idx++) {
-        amps[idx] = amps[idx] / max_amp;
-    }
-
-    max_freq = static_cast<float>(INNER_SAMPLE_RATE) / 2  * max_idx / amps.size();
-
-    PLOG_DEBUG << "Max amp idx " << max_idx << "(val = " << max_amp << ") freq = " << max_freq;
-
-    open = true;
 }
 
-void FFT_Analyzer::analyzeBuffer() {
-    if (!realtime_spectr_from_buffer || !buffer_) return;
+void FFT_AnalyzerView::analyzeBuffer() {
+    if (!analyzer_) return;
 
-    const AudioBuffer &buf = buffer_->readerGetReadyBuffer();
+    const AudioBuffer &buf = analyzer_->buffer_.readerGetReadyBuffer();
     const audio_sample_t *data = buf[0];
 
     int nfft = buf.getFrameCount() & (~1ull); // nfft must be even
@@ -126,12 +73,8 @@ void FFT_Analyzer::analyzeBuffer() {
 
 }
 
-
-void FFT_Analyzer::DrawAnalyzed() {
-
-    if (realtime_spectr_from_buffer ) {
-        analyzeBuffer();
-    }
+void FFT_AnalyzerView::DrawSettings() {
+    analyzeBuffer();
 
     static float scale = 1.0f;
     static int cutoff_idx = amps.size();
@@ -186,9 +129,6 @@ void FFT_Analyzer::DrawAnalyzed() {
     ImGui::Text("Main frequency: %.2f Hz", max_freq);
     ImGui::Text("Processing time: %.1f ms", analyze_time * 1000);
 
-    if (realtime_spectr_from_buffer && ImGui::Button("Unsubscribe from buffer") ) {
-        unsubscribe();
-    }
 }
 
 

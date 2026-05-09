@@ -3,6 +3,7 @@
 #include "common.h"
 #include "effects/biquad_filter.h"
 #include "effects/fft_equalizer.h"
+#include "effects/fft_analyzer.h"
 #include <memory>
 #include <thread>
 
@@ -107,18 +108,12 @@ void Editor::Draw() {
     // =================== EXPORT    =====================
     DrawExport();
 
-    // =================== FFT analyzer ==================
-
-    if (tl_view.analyzer.open) {
-        ImGui::Begin("Spectrum", &tl_view.analyzer.open);
-        tl_view.analyzer.DrawAnalyzed();
-        ImGui::End();
-    }
 }
 
 void Editor::initPlugins() {
     plugin_manager.addPlugin(std::make_unique<BiquadFactory>());
     plugin_manager.addPlugin(std::make_unique<FFT_EqualizerFactory>());
+    plugin_manager.addPlugin(std::make_unique<FFT_AnalyzerFactory>());
 }
 
 } // namespace waves

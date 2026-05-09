@@ -1,9 +1,9 @@
 #pragma once
 
-#include "audio_effects.h"
-#include "common.h"
-
 #include <mutex>
+#include "common.h"
+#include "audio_effects.h"
+
 #include "miniaudio.h"
 
 #include "miniaudio_utils.h"
@@ -55,9 +55,10 @@ public:
         player(ma_format_f32, INNER_CHANNELS, INNER_SAMPLE_RATE, &Editor::data_callback, &playback_state)
     {
         initPlugins();
+
+        PLOG_INFO << "Initialized plugins";
+
         timeline.addTrack();
-        // timeline.tracks.resize(1);
-        // timeline.tracks.emplace_back();
 
         PLOG_INFO << "Editor class initialized";
     }
@@ -66,9 +67,7 @@ public:
     void Draw();
     void DrawExport();
 
-    ~Editor() {
-
-    }
+    ~Editor() {}
 };
 
 } // namespace waves

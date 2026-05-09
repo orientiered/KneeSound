@@ -5,7 +5,6 @@
 #include <shared_mutex>
 #include "common.h"
 
-
 #include "miniaudio.h"
 
 #include "buffer_utils.h"
@@ -261,9 +260,9 @@ public:
     TrackId_t id;
     std::vector<Clip> clips;
 
-    ReadableStreamingBuffer rendering_buffer;
-
     const size_t render_block_size = RENDER_BLOCK_SIZE;
+
+    AudioBuffer rendering_buffer;
 
     float gain_db = 0;
     float pan = 0;
@@ -288,8 +287,8 @@ public:
         clips.push_back(clip);
     }
 
-    Track(std::mutex& mtx_) :
-        rendering_buffer(mtx_, START_RENDER_BUFFER_SIZE, INNER_CHANNELS)
+    Track() :
+        rendering_buffer(render_block_size, INNER_CHANNELS)
     {
         setUniqueId();
     }
@@ -317,22 +316,19 @@ struct ClipLoc {
 class TimeLine {
     std::list<Track> tracks;
 public:
+    const size_t render_block_size = RENDER_BLOCK_SIZE;
+    std::mutex &mtx; // shared mtx
 
     std::atomic<ma_uint64> playhead_frame;
 
-    std::mutex render_buffer_mtx;
-    ReadableStreamingBuffer rendering_buffer;
-
-    std::mutex &mtx; // shared mtx
-
-    const size_t render_block_size = RENDER_BLOCK_SIZE;
+    AudioBuffer rendering_buffer;
 
     AudioBlockAdapter block_adapter;
     std::vector<audio_sample_t> interleave_buffer;
 
     TimeLine(std::mutex &mtx_):
         mtx(mtx_),
-        rendering_buffer(render_buffer_mtx, START_RENDER_BUFFER_SIZE, INNER_CHANNELS),
+        rendering_buffer(render_block_size, INNER_CHANNELS),
         block_adapter(render_block_size * INNER_CHANNELS * 2),
         interleave_buffer(render_block_size * INNER_CHANNELS) {}
 

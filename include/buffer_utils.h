@@ -37,7 +37,7 @@ public:
         std::fill(memory.get(), memory.get() + channels_count_ * frame_count_, 0);
     }
 
-    bool empty() { return !memory.get(); }
+    bool empty() const { return !memory.get(); }
 
     float* getChannel(uint32_t ch) {
         assert(ch < channels_count_);
@@ -60,6 +60,10 @@ public:
     const float * const *data() const {return channels.data(); }
 
     float** data() { return channels.data(); }
+
+    bool operator==(const MultiChannelBuffer& other) const {
+        return channels == other.channels;
+    }
 };
 
 /* ====================== STREAMING BUFFER ========================= */

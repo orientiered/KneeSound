@@ -2,8 +2,6 @@
 #include "common.h"
 
 #include "timeline_view.h"
-#include "effects/biquad_filter.h"
-#include "effects/fft_equalizer.h"
 #include "imgui_misc.h"
 
 #include "playback_controller.h"
@@ -261,11 +259,6 @@ void TimelineView::DrawClip(ImDrawList* draw_list, Clip& clip,
         if (ImGui::DragFloat("Time-stretch", &playback_speed, 0.05, Clip::MIN_PLAYBACK_SPEED, Clip::MAX_PLAYBACK_SPEED)) {
             clip.setPlaybackSpeed(playback_speed);
         }
-
-        if (ImGui::Button("FFT")) {
-            analyzer.analyzeClip(clip);
-        }
-
 
         static ImVec4 color;
         color = ImGui::ColorConvertU32ToFloat4(style.col_clip_base);
@@ -647,12 +640,6 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
         ImGui::DragFloat("Gain", &track.gain_db, 0.3, GAIN_MIN, GAIN_MAX, "%.1f");
     );
 
-
-    ID_GUARD(&track.rendering_buffer,
-        if (ImGui::Button("FFT Spectr")) {
-            analyzer.subscribeToBuffer(&track.rendering_buffer);
-        }
-    );
 
     ImGui::EndChild();
     /* ========================================= */
