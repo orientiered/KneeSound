@@ -3,6 +3,7 @@
 #include "effects/biquad_filter.h"
 #include "effects/fft_equalizer.h"
 #include "effects/fft_analyzer.h"
+#include "effects/reverb.h"
 #include <memory>
 
 namespace waves {
@@ -67,6 +68,7 @@ void Editor::initPlugins() {
     plugin_manager.addPlugin(std::make_unique<BiquadFactory>());
     plugin_manager.addPlugin(std::make_unique<FFT_EqualizerFactory>());
     plugin_manager.addPlugin(std::make_unique<FFT_AnalyzerFactory>());
+    plugin_manager.addPlugin(std::make_unique<ReverbFactory>());
 }
 
 } // namespace waves

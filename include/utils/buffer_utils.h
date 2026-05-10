@@ -147,6 +147,26 @@ public:
         return to_push;
     }
 
+    /// @brief Bulk filling
+    /// @return Number of elements pushed
+    std::size_t fill_bulk(const T& elem, std::size_t count) {
+        if (count == 0 || count_ == capacity_) return 0;
+        std::size_t to_push = std::min(count, capacity_ - count_);
+
+        std::size_t first_chunk = std::min(to_push, capacity_ - tail_);
+        std::fill_n(data_.data() + tail_, first_chunk, elem);
+        tail_ = (tail_ + first_chunk) % capacity_;
+
+        if (first_chunk < to_push) {
+            std::size_t second_chunk = to_push - first_chunk;
+            std::fill_n(data_.data(), second_chunk, elem);
+            tail_ = second_chunk;
+        }
+
+        count_ += to_push;
+        return to_push;
+    }
+
     /// @brief Bulk reading
     /// @return Number of elements popped
     std::size_t pop_bulk(T* dst, std::size_t count) {
