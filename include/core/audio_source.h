@@ -64,6 +64,7 @@ struct AudioSource {
 
     PeakCache::min_max getPeakFallback(ma_uint64 start, ma_uint64 end) const {
         PeakCache::min_max result;
+        end = std::min(end, getDurationFrames());
         for (ma_uint64 f = start; f < end; ++f) {
             result.update(getMonoSampleAmplitude(f));
         }
