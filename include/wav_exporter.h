@@ -11,6 +11,9 @@ class Editor;
 using encoder_callback_t =
    void (*)(void *data, audio_sample_t *out, uint64_t start_frame, uint64_t frame_count);
 
+using encode_finish_callback_t =
+   void (*) (void *data);
+
 class Exporter {
 
     std::string output_path;
@@ -40,18 +43,29 @@ public:
     int32_t getReadyState() { return ready.load(); }
 
     // start Encoding in separate thread
-    bool startEncoding(encoder_callback_t callback, void *callback_data);
+    bool startEncoding(encoder_callback_t callback, void *callback_data,
+        encode_finish_callback_t finish = nullptr, void *finish_data = nullptr);
 private:
     // Helper functions
     void writeWAVHeader();
-    void encodeAudio(encoder_callback_t callback, void *callback_data);
+    void encodeAudio(encoder_callback_t callback, void *callback_data,
+        encode_finish_callback_t finish = nullptr, void *finish_data = nullptr);
 
 };
 
 class Exporter_View {
-    Exporter exporter;
 public:
     void Draw(Editor& editor);
+private:
+    Exporter exporter;
+
+    std::string output_path_ = "";
+    std::pair<int32_t, int32_t> export_range_;
+
+    // helpers
+    void handlePathChoose();
+    void handleRangeChoose(uint64_t frame);
+    void handleExport(Editor &editor);
 };
 
 }

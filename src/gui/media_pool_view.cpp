@@ -1,3 +1,6 @@
+#include "core/audio_source.h"
+#include "core/playback_controller.h"
+#include "core/timeline.h"
 #include "editor.h"
 
 #include "ImGuiFileDialog.h"
@@ -5,15 +8,16 @@
 #include "gui/media_pool_view.h"
 
 #include "imgui_misc.h"
+#include <imgui.h>
 
 namespace waves {
 
 void MediaPoolView::Draw(Editor& editor) {
-    DrawSelectDialog(editor);
+    DrawSelectDialog(editor.media_pool);
     DrawOpenedFiles(editor.playback_state);
 }
 
-void MediaPoolView::DrawSelectDialog(Editor& editor) {
+void MediaPoolView::DrawSelectDialog(MediaPool &media_pool) {
     const char * IMPORT_DLG_KEY = "ChooseImportAudioKey";
     if (ImGui::Button("Import audio")) {
         IGFD::FileDialogConfig config;
@@ -32,8 +36,7 @@ void MediaPoolView::DrawSelectDialog(Editor& editor) {
             for (auto [name, path]: selection) {
                 AudioSourcePtr src = decode_audio_from_file(name, path);
 
-                editor.media_pool.push_back(src);
-
+                media_pool.push_back(src);
             }
         }
         // close
@@ -42,15 +45,14 @@ void MediaPoolView::DrawSelectDialog(Editor& editor) {
 
 }
 
+bool MediaPoolView::DrawFile(MediaPool &media_pool, int track_idx, bool &erase) {
+    const AudioSourcePtr src = media_pool.getTrackList()[track_idx];
 
-void MediaPoolView::DrawFile(PlaybackController& playback_state, SourceIt it, int track_idx, bool &erase) {
-    MediaPool &pool = playback_state.pool;
-    const AudioSourcePtr src = *it;
+    bool playing = media_pool.getPlaying();
+    AudioSourcePtr currentTrack = media_pool.getCurrentTrack();
+    bool on_current = src == currentTrack;
 
-    bool playing = playback_state.isPlaying && playback_state.src == POOL_SRC;
-    SourceIt currentTrack = playback_state.currentTrack;
-    bool on_current = currentTrack == it;
-
+    bool needs_focus = false;
 
     ID_GUARD(track_idx,
         if (ImGui::Button("X")) {
@@ -67,7 +69,7 @@ void MediaPoolView::DrawFile(PlaybackController& playback_state, SourceIt it, in
     // drag and drop
     if (src->valid && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID) ) {
 
-        AudioSourcePtr data = *it; // Sending audio source
+        AudioSourcePtr data = src; // Sending audio source
         ImGui::SetDragDropPayload(POOL_DND, &data, sizeof(AudioSourcePtr));
 
         // Displaying name of the payload
@@ -79,62 +81,71 @@ void MediaPoolView::DrawFile(PlaybackController& playback_state, SourceIt it, in
         // do nothing
     } else if (!src->valid) {
         ImGui::SameLine();
-
         ImGui::Text("Failed to decode");
 
     } else {
         const char *button_text =
             (on_current && playing) ? "Stop" : "Play";
+        bool play_state = on_current && playing;
 
         ImGui::SameLine();
-        ImGui::PushID(track_idx);
-            if (ImGui::Button(button_text)) {
-                //TODO: refactor
-                playback_state.src = POOL_SRC;
+        ImVec2 widget_size(ImGui::GetTextLineHeightWithSpacing(), ImGui::GetTextLineHeightWithSpacing());
+        ID_GUARD(track_idx,
+            if (ImGui::PlayStopWidget(widget_size, play_state)) {
+                needs_focus = true;
                 if (!on_current) {
-                    playback_state.setTrack(it);
-                    playback_state.setPlaying(true);
+                    media_pool.setTrack(src);
+                    media_pool.setPlaying(true);
                 } else {
-                    playback_state.setPlaying(!playing);
+                    media_pool.setPlaying(!playing);
                 }
+
             }
-        ImGui::PopID();
+        );
 
         if (on_current) {
-            // ImGui::SameLine();
-            int slider_frame = playback_state.getCurrentTrackPosInFrames();
 
-            if (ImGui::SliderInt("Frame", &slider_frame, 0, playback_state.getCurrentTrackLenInFrames())
-                && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                playback_state.setCurrentTrackPosInFrames(slider_frame);
+            int slider_frame = media_pool.getCurrentFrame();
+            float time_sec = frameToSec(slider_frame);
+            float end_sec = frameToSec(media_pool.getCurrentTrackLenInFrames());
+
+            bool slider_change = ImGui::SliderFloat("##Frame", &time_sec, 0, end_sec, "%.2f s");
+
+            if (slider_change && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || std::abs(ImGui::GetMouseDragDelta().x) > 0)) {
+                ImGui::ResetMouseDragDelta();
+                media_pool.setCurrentTrackPosInFrames(secToFrame(time_sec));
             }
 
         }
 
     }
+
+    return needs_focus;
 }
 
 void MediaPoolView::DrawOpenedFiles(PlaybackController& playback_state) {
-    int track_idx = 0;
     MediaPool& media_pool = playback_state.pool;
-    SourceIt eraseIt = media_pool.end();
 
-    for (auto it = media_pool.begin(); it != media_pool.end(); it++, track_idx++) {
+    const std::vector<AudioSourcePtr> src_list = media_pool.getTrackList();
+    int erase_idx = -1;
+
+    for (int track_idx = 0; track_idx < src_list.size(); track_idx++) {
         bool erase = false;
-        DrawFile(playback_state, it, track_idx, erase);
+        bool need_focus = DrawFile(media_pool, track_idx, erase);
         if (erase)
-            eraseIt = it;
+            erase_idx = track_idx;
+
+        if (need_focus) {
+            playback_state.setPoolSrc();
+        }
 
     }
 
-    if (eraseIt != media_pool.end()) {
-        if (playback_state.currentTrack == eraseIt) {
-            playback_state.setPlaying(false);
-            playback_state.setTrack(media_pool.end());
-        }
+    if (erase_idx >= 0) {
+        AudioSourcePtr erase_src = src_list[erase_idx];
+        media_pool.erase(erase_src);
 
-        PLOG_INFO << "Removed source " << eraseIt->get()->name << " from media pool";
-        media_pool.erase(eraseIt);
+        PLOG_INFO << "Removed source " << erase_src->name << " from media pool";
     }
 }
 

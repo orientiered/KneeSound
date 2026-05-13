@@ -2,10 +2,12 @@
 #include "wav_exporter.h"
 #include <thread>
 
+#include "core/playback_controller.h"
 #include "imgui.h"
 #include "ImGuiFileDialog.h"
 
 #include "editor.h"
+#include "plog/Log.h"
 
 namespace waves {
 
@@ -82,7 +84,9 @@ void Exporter::writeWAVHeader() {
 
 }
 
-void Exporter::encodeAudio(encoder_callback_t callback, void *data) {
+void Exporter::encodeAudio(encoder_callback_t callback, void *data,
+    encode_finish_callback_t finish, void *finish_data)
+{
     uint64_t current_frame = export_start_frame;
     uint64_t step = preferred_render_step;
 
@@ -106,12 +110,19 @@ void Exporter::encodeAudio(encoder_callback_t callback, void *data) {
     }
 
     output_file.close();
+    PLOG_DEBUG<< "Calling finish callback";
+    if (finish)
+            finish(finish_data);
+
     PLOG_INFO << "Encoding finished!";
+
     ready.store(true);
 }
 
 /* ================== ENCODE START ============================= */
-bool Exporter::startEncoding(encoder_callback_t callback, void *data) {
+bool Exporter::startEncoding(encoder_callback_t callback, void *data,
+    encode_finish_callback_t finish, void *finish_data)
+{
     if (!output_file.is_open()) {
         PLOG_ERROR << "Encoder: output file is not properly opened ";
         return false;
@@ -138,7 +149,7 @@ bool Exporter::startEncoding(encoder_callback_t callback, void *data) {
     writeWAVHeader();
 
     PLOG_DEBUG << "Launching encoder thread";
-    std::thread encoding_thread(&Exporter::encodeAudio, this, callback, data);
+    std::thread encoding_thread(&Exporter::encodeAudio, this, callback, data, finish, finish_data);
 
     encoding_thread.detach();
 
@@ -189,62 +200,66 @@ void timeline_render_callback(void *data, audio_sample_t *out, uint64_t start_fr
     timeline->renderFrames(out, start_frame, frame_count);
 }
 
+void playback_finish_callback(void *data) {
+    PlaybackController *controller = reinterpret_cast<PlaybackController *>(data);
+
+    controller->player.start();
+}
 /* ========================== EXPORTER VIEW IN EDITOR =================== */
 
-
-void Exporter_View::Draw(Editor& editor) {
-
-    static std::string output_path = "";
-
-    const char *label = (output_path == "") ? "Choose file" : output_path.c_str();
+void Exporter_View::handlePathChoose() {
+    const char *label = (output_path_ == "") ? "Choose file" : output_path_.c_str();
+    const char * const FILE_CHOOSE_KEY = "ChooseExportPathKey";
     if (ImGui::Button(label)) {
         IGFD::FileDialogConfig config;
         config.path = "."; // starting from current directory;
         config.countSelectionMax = 1; // selecting 1 file
-        ImGuiFileDialog::Instance()->OpenDialog("ChooseExportPathKey", "Save file", ".wav", config);
+        ImGuiFileDialog::Instance()->OpenDialog(FILE_CHOOSE_KEY, "Save file", ".wav", config);
     }
 
-    if (ImGuiFileDialog::Instance()->Display("ChooseExportPathKey")) {
+    if (ImGuiFileDialog::Instance()->Display(FILE_CHOOSE_KEY)) {
         if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
 
-            output_path = ImGuiFileDialog::Instance()->GetFilePathName();
-            if (!exporter.setOutputPath(output_path)) {
-                output_path = "Invalid path, choose again";
+            output_path_ = ImGuiFileDialog::Instance()->GetFilePathName();
+            if (!exporter.setOutputPath(output_path_)) {
+                output_path_ = "Invalid path, choose again";
             }
         }
         // close
         ImGuiFileDialog::Instance()->Close();
     }
+}
 
-    ImGui::Separator();
+void Exporter_View::handleRangeChoose(uint64_t frame) {
     ImGui::Text("Export range");
-    static std::pair<int32_t, int32_t> export_range;
 
-    export_range = exporter.getExportRange();
+    export_range_ = exporter.getExportRange();
 
     int32_t max_frame = INNER_SAMPLE_RATE * 60 * 60; // 1 hour limit for now
     // int32_t max_frame = editor.tl_view.getTimelineLen();
 
-    if (ImGui::SliderInt2("##export_range_slider", reinterpret_cast<int32_t*>(&export_range),
+    if (ImGui::SliderInt2("##export_range_slider", reinterpret_cast<int32_t*>(&export_range_),
                     0, max_frame, "%u")) {
-        exporter.setStartFrame(export_range.first);
-        exporter.setEndFrame(export_range.second);
+        exporter.setStartFrame(export_range_.first);
+        exporter.setEndFrame(export_range_.second);
     }
 
     if (ImGui::Button("Set start to playhead")) {
-        exporter.setStartFrame(editor.timeline.playhead_frame);
+        exporter.setStartFrame(frame);
     }
     ImGui::SameLine();
 
     if (ImGui::Button("Set end to playhead")) {
-        exporter.setEndFrame(editor.timeline.playhead_frame);
+        exporter.setEndFrame(frame);
     }
 
-    export_range = exporter.getExportRange();
+    export_range_ = exporter.getExportRange();
 
-    float length_in_sec = static_cast<float>(export_range.second - export_range.first) / INNER_SAMPLE_RATE;
+    float length_in_sec = static_cast<float>(export_range_.second - export_range_.first) / INNER_SAMPLE_RATE;
     ImGui::Text("Estimated length: %.3f sec", length_in_sec);
+}
 
+void Exporter_View::handleExport(Editor &editor) {
     static bool encoder_started = false;
     static bool error_on_start = false;
     static bool encoder_finished = false;
@@ -252,13 +267,13 @@ void Exporter_View::Draw(Editor& editor) {
     bool new_started = !exporter.getReadyState();
     if (encoder_started && !new_started) {
         encoder_finished = true;
-        output_path = ""; // resetting path
+        output_path_ = ""; // resetting path
     }
     encoder_started = new_started;
 
     if (encoder_started ) {
         float progress_percent =
-            static_cast<float>(exporter.getEncodingProgress()) / (export_range.second - export_range.first);
+            static_cast<float>(exporter.getEncodingProgress()) / (export_range_.second - export_range_.first);
         ImGui::ProgressBar(progress_percent);
     } else {
         if (encoder_finished) {
@@ -271,11 +286,29 @@ void Exporter_View::Draw(Editor& editor) {
 
         if (ImGui::Button("Export")) {
             encoder_finished = false;
-            error_on_start = !exporter.startEncoding(timeline_render_callback, &editor.timeline);
+
+            editor.playback_state.player.stop();
+            error_on_start = !exporter.startEncoding(timeline_render_callback, &editor.timeline, playback_finish_callback, &editor.playback_state);
             if (!error_on_start) encoder_started = true;
+            else {
+                editor.playback_state.player.start();
+            }
         }
 
     }
+}
+
+
+void Exporter_View::Draw(Editor& editor) {
+
+    handlePathChoose();
+
+    ImGui::Separator();
+
+    handleRangeChoose(editor.timeline.playhead_frame);
+
+    handleExport(editor);
+
 }
 
 }

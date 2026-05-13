@@ -1,13 +1,67 @@
 #pragma once
 #include "common.h"
 
-#include "mutex"
+#include "core/audio_source.h"
 #include "timeline.h"
+
+#include "core/miniaudio_utils.h"
+#include <atomic>
+#include <memory>
 
 namespace waves {
 
-using MediaPool = std::list<AudioSourcePtr>;
-using SourceIt = typeof(MediaPool().begin());
+class MediaPool {
+    std::vector<AudioSourcePtr> audio_src_;
+
+    std::atomic<AudioSourcePtr> current_track_;
+    std::atomic<int64_t> current_frame_;
+
+    std::atomic<bool> is_playing_;
+public:
+    const std::vector<AudioSourcePtr> &getTrackList() const {
+        return audio_src_;
+    }
+
+    void push_back(AudioSourcePtr src) {
+        audio_src_.push_back(src);
+    }
+
+    void erase(AudioSourcePtr src) {
+        auto it = std::find(audio_src_.begin(), audio_src_.end(), src);
+
+        if (src == current_track_.load()) {
+            resetTrack();
+        }
+
+        audio_src_.erase(it);
+    }
+
+    int32_t getCurrentTrackLenInFrames() const {
+        AudioSourcePtr src = current_track_.load();
+        if (src) return src->getDurationFrames();
+        return 0;
+    }
+
+    int32_t getCurrentFrame() const { return current_frame_.load(); }
+
+    AudioSourcePtr getCurrentTrack() const { return current_track_.load(); }
+
+    void setCurrentTrackPosInFrames(int64_t frame) {
+        current_frame_.store(frame);
+    }
+
+    void setTrack(AudioSourcePtr src) {
+        PLOG_INFO << "Media pool: setting track " << (src ? src->name : "empty");
+
+        current_track_.store(src, std::memory_order_release);
+        current_frame_.store(0, std::memory_order_release);
+    }
+
+    void resetTrack() { setTrack(nullptr); }
+
+    bool getPlaying() const { return is_playing_.load(); }
+    void setPlaying(bool state) { is_playing_.store(state, std::memory_order_release); }
+};
 
 // Source of samples:
 // POOL - media pool with original audio
@@ -17,33 +71,36 @@ enum SampleSource {
     TIMELINE_SRC
 };
 
-struct PlaybackController {
-    bool isPlaying = false;
-    SampleSource src = POOL_SRC;
+class PlaybackController {
+    std::atomic<bool> timeline_playing_ = false;
+    std::atomic<SampleSource> src = POOL_SRC;
 
-    int64_t currentFrame = 0;
-    SourceIt currentTrack;
-
+public:
     MediaPool& pool;
     TimeLine& timeline;
 
-    std::mutex &mtx;
+    MaAudioPlayer player;
 
-
-    PlaybackController(std::mutex &mtx_, MediaPool& pool_, TimeLine& timeline_) :
-        mtx(mtx_), pool(pool_), timeline(timeline_) {}
+    PlaybackController(MediaPool& pool_, TimeLine& timeline_) :
+        pool(pool_), timeline(timeline_),
+        player(ma_format_f32, INNER_CHANNELS, INNER_SAMPLE_RATE, &data_callback, this)
+        {}
 
     void getFrames(void *out, ma_uint32 frameCount) {
-        std::lock_guard<std::mutex> lock_guard(mtx);
 
-        if (!isPlaying) return;
-
-        if (src == POOL_SRC) {
+        if (src.load() == POOL_SRC) {
             getFramesFromPool(out, frameCount);
         } else {
             getFramesFromTimeline(out, frameCount);
         }
 
+    }
+
+    static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
+        PlaybackController *playback_state = reinterpret_cast<PlaybackController*>(pDevice->pUserData);
+        playback_state->getFrames(pOutput, frameCount);
+
+        return;
     }
 
     void getFramesFromTimeline(void *out, ma_uint32 frameCount);
@@ -52,53 +109,21 @@ struct PlaybackController {
 
     void handleToggleFromTimeline() {
         PLOG_DEBUG << "Playback toggle from timeline";
-        mtx.lock();
 
-        if (src == POOL_SRC) {
-            isPlaying = true;
-        } else {
-            isPlaying = !isPlaying;
-        }
-
+        timeline_playing_ = !timeline_playing_;
+        pool.setPlaying(false);
         src = TIMELINE_SRC;
-        mtx.unlock();
     }
 
-    int32_t getCurrentTrackLenInFrames() {
-        return (*currentTrack)->getDurationFrames();
+    void setPoolSrc() {
+        PLOG_DEBUG << "Setting pool src";
+
+        timeline_playing_ = false;
+        src = POOL_SRC;
     }
 
-    int32_t getCurrentTrackPosInFrames() {
-        return currentFrame;
-    }
-
-    void setCurrentTrackPosInFrames(int32_t frame) {
-        mtx.lock();
-
-        currentFrame = frame;
-
-        mtx.unlock();
-    }
-
-    void setTrack(SourceIt id) {
-        PLOG_INFO << "Playback_state: setting track with id " << id->get();
-
-        mtx.lock();
-
-        currentTrack = id;
-        currentFrame = 0;
-
-        mtx.unlock();
-    }
-
-    void setPlaying(bool playing) {
-        PLOG_INFO << "Playback_state: set playing state to " << playing;
-        mtx.lock();
-
-        isPlaying = playing;
-
-        mtx.unlock();
-    }
+    bool getPlaying() const { return timeline_playing_.load(); }
+    void setPlaying(bool state) { timeline_playing_.store(state, std::memory_order_release); }
 
 };
 

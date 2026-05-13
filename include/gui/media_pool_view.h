@@ -11,9 +11,10 @@ struct MediaPoolView {
 public:
     void Draw(Editor& editor);
 private:
-    void DrawSelectDialog(Editor& editor);
+    void DrawSelectDialog(MediaPool &media_pool);
     void DrawOpenedFiles(PlaybackController& playback_state);
-    void DrawFile(PlaybackController& playback_state, SourceIt it, int track_idx, bool &erase);
+    // @return True if play requested
+    bool DrawFile(MediaPool &media_pool, int track_idx, bool &erase);
 };
 
 }

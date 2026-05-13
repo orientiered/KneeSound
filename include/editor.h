@@ -5,8 +5,6 @@
 
 #include "miniaudio.h"
 
-#include "core/miniaudio_utils.h"
-
 #include "core/timeline.h"
 #include "core/playback_controller.h"
 
@@ -33,29 +31,18 @@ public:
     TimeLine timeline;
     PlaybackController playback_state;
 
-
     MediaPoolView mp_view;
     TimelineView tl_view;
 
     Exporter_View exporter;
 
-    MaAudioPlayer player;
-
     bool show_export_window = false;
-
-    static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
-        PlaybackController *playback_state = reinterpret_cast<PlaybackController*>(pDevice->pUserData);
-        playback_state->getFrames(pOutput, frameCount);
-
-        return;
-    }
 
     Editor(): mtx(),
         media_pool(),
         timeline(mtx),
-        playback_state(mtx, media_pool, timeline),
-        tl_view(timeline, plugin_manager, 1e-2),
-        player(ma_format_f32, INNER_CHANNELS, INNER_SAMPLE_RATE, &Editor::data_callback, &playback_state)
+        playback_state(media_pool, timeline),
+        tl_view(timeline, plugin_manager, 1e-2)
     {
         initPlugins();
 
