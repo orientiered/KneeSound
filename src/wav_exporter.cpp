@@ -1,10 +1,13 @@
 #include <atomic>
 #include "wav_exporter.h"
 #include <thread>
+#include <utility>
 
+#include "common.h"
 #include "core/playback_controller.h"
 #include "imgui.h"
 #include "ImGuiFileDialog.h"
+#include "imgui_misc.h"
 
 #include "editor.h"
 #include "plog/Log.h"
@@ -298,6 +301,241 @@ void Exporter_View::handleExport(Editor &editor) {
     }
 }
 
+// Calculate RMS for 2 channel interleaved float audio
+static std::pair<float, float> calculateRMS2(float *data, uint32_t frame_count) {
+    float left_sum = 0, right_sum = 0;
+
+    for (uint32_t frame = 0; frame < frame_count; frame++) {
+        float left = data[frame * 2];
+        float right = data[frame * 2 + 1];
+
+        left_sum += left * left;
+        right_sum += right * right;
+    }
+
+    float left_rms = std::sqrt(left_sum / frame_count);
+    float right_rms = std::sqrt(right_sum / frame_count);
+
+    float left_log_rms = 20.0f * std::log10(std::max(left_rms, 1e-10f));
+    float right_log_rms = 20.0f * std::log10(std::max(right_rms, 1e-10f));
+
+    // return {left_log_rms, right_log_rms};
+    return {left_rms, right_rms};
+}
+
+// Calculate max for 2 channel interleaved float audio
+static std::pair<float, float> calculateMax2(float *data, uint32_t frame_count) {
+    float left_max = 0, right_max = 0;
+
+    for (uint32_t frame = 0; frame < frame_count; frame++) {
+        float left = data[frame * 2];
+        float right = data[frame * 2 + 1];
+
+        left_max = std::max(std::abs(left), left_max);
+        right_max = std::max(std::abs(right), right_max);
+    }
+
+    return {left_max, right_max};
+}
+
+void PlotAudioBlockStats(const std::vector<BlockStats>& data, float sample_offset, float clip_threshold = 1.0f,
+        float sample_rate = INNER_SAMPLE_RATE,
+        int block_size = 8192)
+{
+    if (data.size() < 2) {
+        ImGui::Text("Требуется минимум 2 блока для отрисовки.");
+        return;
+    }
+
+    // Область графика внутри ImGui
+    ImGui::BeginChild("##AudioPlot", ImVec2(0, 300.0f), true);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 p_min = ImGui::GetCursorScreenPos();
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+
+    const float margin = 50.0f;
+    const float plot_w = avail.x - margin;
+    const float plot_h = avail.y - margin;
+
+    // Фиксированный диапазон Y для аудио (-1.2 .. +1.2).
+    // Можно заменить на авто-масштабирование по min/max данных.
+    const float y_min = -1.2f, y_max = 1.2f;
+    const float y_range = y_max - y_min;
+
+    // Функции преобразования данных в экранные координаты
+    auto to_x = [&](size_t i) { return p_min.x + (i / (float)(data.size() - 1)) * plot_w; };
+    auto to_y = [&](float v) { return p_min.y + plot_h - ((v - y_min) / y_range) * plot_h; };
+
+    // 1. Фон графика
+    dl->AddRectFilled(p_min, ImVec2(p_min.x + plot_w, p_min.y + plot_h), IM_COL32(28, 28, 28, 255));
+
+    // 2. Линии порога клиппинга (+1.0 и -1.0)
+    float th_y_pos = to_y(clip_threshold);
+    float th_y_neg = to_y(-clip_threshold);
+    dl->AddLine(ImVec2(p_min.x, th_y_pos), ImVec2(p_min.x + plot_w, th_y_pos), IM_COL32(255, 120, 120, 140), 1.5f);
+    dl->AddLine(ImVec2(p_min.x, th_y_neg), ImVec2(p_min.x + plot_w, th_y_neg), IM_COL32(255, 120, 120, 140), 1.5f);
+
+    // 3. Отрисовка графиков RMS и Max
+    ImVec2 prev_rms, prev_max;
+    for (size_t i = 0; i < data.size(); ++i) {
+        ImVec2 curr;
+        // Клиппинг определяется по пиковой амплитуде блока
+        bool is_clipped = std::abs(data[i].max_amp) >= clip_threshold;
+
+        // RMS линия
+        curr.x = to_x(i);
+        curr.y = to_y(data[i].rms);
+        if (i > 0) {
+            ImU32 col = is_clipped ? IM_COL32(255, 80, 80, 220) : IM_COL32(100, 180, 255, 180);
+            dl->AddLine(prev_rms, curr, col, 1.5f);
+        }
+        prev_rms = curr;
+
+        // Max линия
+        curr.y = to_y(data[i].max_amp);
+        if (i > 0) {
+            ImU32 col = is_clipped ? IM_COL32(255, 0, 0, 255) : IM_COL32(120, 255, 120, 200);
+            dl->AddLine(prev_max, curr, col, 2.0f);
+        }
+        prev_max = curr;
+    }
+
+    /* ========== TOOLTIP ===============  */
+    ImVec2 mouse_pos = ImGui::GetMousePos();
+        bool in_plot = (mouse_pos.x >= p_min.x && mouse_pos.x <= p_min.x + plot_w &&
+                        mouse_pos.y >= p_min.y && mouse_pos.y <= p_min.y + plot_h &&
+                        ImGui::IsWindowHovered());
+
+    if (in_plot) {
+        // Привязка к ближайшему блоку
+        float rel_x = mouse_pos.x - p_min.x;
+        size_t idx = std::clamp<size_t>(std::round(rel_x / plot_w * (data.size() - 1)), 0, data.size() - 1);
+        float snap_x = to_x((float)idx);
+
+        // Вертикальный курсор
+        dl->AddLine(ImVec2(snap_x, p_min.y), ImVec2(snap_x, p_min.y + plot_h), IM_COL32(255, 255, 255, 150), 1.0f);
+
+        // Расчёт времени
+        double total_samples = (double)idx * block_size + sample_offset;
+        double time_sec = total_samples / sample_rate;
+
+        int total_ms = (int)std::round((time_sec - std::floor(time_sec)) * 1000);
+        int total_s  = (int)std::floor(time_sec);
+        int s = total_s % 60;
+        int m = (total_s / 60) % 60;
+        int h = total_s / 3600;
+
+        char time_buf[20];
+        std::snprintf(time_buf, sizeof(time_buf), "%02d:%02d:%02d.%03d", h, m, s, total_ms);
+
+        const auto& blk = data[idx];
+        bool is_clipped = std::abs(blk.max_amp) >= clip_threshold;
+
+        ImGui::BeginTooltip();
+        ImGui::Text("Block: %zu / %zu", idx, data.size() - 1);
+        ImGui::Text("Time:  %s", time_buf);
+        ImGui::Separator();
+        ImGui::Text("RMS:   %.4f", blk.rms);
+        ImGui::Text("Max:   %.4f", blk.max_amp);
+        if (is_clipped)
+            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "⚠ CLIPPED");
+        else
+            ImGui::Text("Status: OK");
+        ImGui::EndTooltip();
+    }
+
+    /* ========== ПОДПИСИ ===============  */
+
+
+    // 4. Подписи осей
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "+%.1f", y_max);
+    dl->AddText(ImVec2(p_min.x , p_min.y - 6), IM_COL32(200, 200, 200, 255), buf);
+    std::snprintf(buf, sizeof(buf), "%.1f", y_min);
+    dl->AddText(ImVec2(p_min.x, p_min.y + plot_h - 6), IM_COL32(200, 200, 200, 255), buf);
+    dl->AddText(ImVec2(p_min.x, p_min.y + plot_h / 2.0f - 6), IM_COL32(200, 200, 200, 255), "0.0");
+
+    // 5. Легенда внутри области графика
+    float lg_x = p_min.x + plot_w - 110;
+    float lg_y = p_min.y + 15;
+    dl->AddText(ImVec2(lg_x, lg_y), IM_COL32_WHITE, "RMS");
+    dl->AddLine(ImVec2(lg_x - 18, lg_y + 4), ImVec2(lg_x - 5, lg_y + 4), IM_COL32(100, 180, 255, 180), 2.0f);
+
+    dl->AddText(ImVec2(lg_x, lg_y + 20), IM_COL32_WHITE, "Max");
+    dl->AddLine(ImVec2(lg_x - 18, lg_y + 24), ImVec2(lg_x - 5, lg_y + 24), IM_COL32(120, 255, 120, 200), 2.0f);
+
+    dl->AddText(ImVec2(lg_x, lg_y + 40), IM_COL32_WHITE, "Clip > 1.0");
+    dl->AddRectFilled(ImVec2(lg_x - 13, lg_y + 44), ImVec2(lg_x - 5, lg_y + 50), IM_COL32(255, 0, 0, 255));
+
+    ImGui::EndChild();
+}
+
+void Exporter_View::handleAnalyze(Editor &editor) {
+    const size_t step = 8192;
+
+    static bool is_analyzing = false;
+    static bool show_stats = false;
+
+    auto analyze = [&]() {
+        std::vector<float> block(INNER_CHANNELS * step);
+
+        uint64_t current_frame = export_range_.first;
+        std::vector<audio_sample_t> frames(step*INNER_CHANNELS);
+        uint64_t cur_block = 0;
+
+        while (current_frame < export_range_.second) {
+
+            // writing frames
+            uint64_t frame_count = ((current_frame + step) >= export_range_.second ) ?
+                                    export_range_.second - current_frame :
+                                    step;
+
+            frames.resize(frame_count * INNER_CHANNELS);
+            editor.timeline.renderFrames(frames.data(), current_frame, frame_count);
+
+            auto rms = calculateRMS2(frames.data(), frame_count);
+            auto max_amp = calculateMax2(frames.data(), frame_count);
+
+            block_stats_[0][cur_block] = {rms.first, max_amp.first};
+            block_stats_[1][cur_block] = {rms.second, max_amp.second};
+
+            current_frame += frame_count;
+            cur_block++;
+        }
+
+        editor.playback_state.player.start();
+        is_analyzing = false;
+    };
+
+    if (ImGui::Button("Analyze") && !is_analyzing) {
+        const size_t block_cnt = (export_range_.second - export_range_.first + step - 1) / step;
+
+        show_stats = true;
+        block_stats_[0].clear();
+        block_stats_[0].resize(block_cnt);
+
+        block_stats_[1].clear();
+        block_stats_[1].resize(block_cnt);
+
+        editor.playback_state.player.stop();
+
+        is_analyzing = true;
+
+        std::thread analyze_thread(analyze);
+        analyze_thread.detach();
+
+    }
+
+    ImGui::Checkbox("Show stats", &show_stats);
+
+    if (show_stats) {
+        ImGui::Text("Left channel");
+        ID_GUARD(0, PlotAudioBlockStats(block_stats_[0], export_range_.first); );
+
+        ImGui::Text("Right channel");
+        ID_GUARD(1, PlotAudioBlockStats(block_stats_[1], export_range_.first); );
+    }
+}
 
 void Exporter_View::Draw(Editor& editor) {
 
@@ -308,6 +546,8 @@ void Exporter_View::Draw(Editor& editor) {
     handleRangeChoose(editor.timeline.playhead_frame);
 
     handleExport(editor);
+
+    handleAnalyze(editor);
 
 }
 

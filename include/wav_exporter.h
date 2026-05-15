@@ -53,6 +53,13 @@ private:
 
 };
 
+struct BlockStats {
+    float rms;
+    float max_amp;
+    BlockStats(): rms(0), max_amp(0) {}
+    BlockStats(float r, float a): rms(r), max_amp(a) {}
+};
+
 class Exporter_View {
 public:
     void Draw(Editor& editor);
@@ -62,10 +69,13 @@ private:
     std::string output_path_ = "";
     std::pair<int32_t, int32_t> export_range_;
 
+    std::vector<BlockStats> block_stats_[2];
+
     // helpers
     void handlePathChoose();
     void handleRangeChoose(uint64_t frame);
     void handleExport(Editor &editor);
+    void handleAnalyze(Editor &editor);
 };
 
 }
