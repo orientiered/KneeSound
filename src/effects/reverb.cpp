@@ -13,10 +13,10 @@ void ReverbKernel::prepare(uint32_t delay, uint32_t block_size, uint32_t channel
         BulkQueue<audio_sample_t>((block_size + delay)*2));
 
     // TODO: race conditions
-    temp_.resize(block_size);
+    wet_.resize(block_size);
 
     for (int ch = 0; ch < channels; ch++) {
-        (*new_state)[ch].fill_bulk(audio_sample_t(), delay);
+        (*new_state)[ch].fill_bulk(audio_sample_t(), delay+block_size);
     }
 
     state_.store(new_state, std::memory_order_release);
@@ -33,22 +33,24 @@ void ReverbKernel::process(const AudioBuffer& in, AudioBuffer &out) {
         const audio_sample_t *ch_in = in[ch];
         audio_sample_t *ch_out = out.getChannel(ch);
 
-        // storing samples to queue
-        (*state)[ch].push_bulk(ch_in, numSamples);
-
         // retrieving reverb
-        (*state)[ch].pop_bulk(temp_.data(), numSamples);
-
+        (*state)[ch].pop_bulk(wet_.data(), numSamples);
 
         for (size_t i = 0; i < numSamples; ++i) {
-            ch_out[i] = ch_in[i] + temp_[i] * gain_;
+            ch_out[i] = dry_gain_ * ch_in[i] + wet_gain_ * wet_[i];
         }
+
+        // storing samples to queue
+        (*state)[ch].push_bulk(ch_out, numSamples);
+
+
     }
 }
 
 void ReverbView::DrawSettings() {
     ImGui::SeparatorText("Simple reverb");
-    ImGui::DragFloat("Gain", &reverb_->getGain(), 0.01, 0, 1);
+    ImGui::DragFloat("Dry gain", &reverb_->getDryGain(), 0.01, 0, 1);
+    ImGui::DragFloat("Wet gain", &reverb_->getWetGain(), 0.01, 0, 1);
 
     delay_sec_ = static_cast<float>(reverb_->getDelay()) / INNER_SAMPLE_RATE;
 

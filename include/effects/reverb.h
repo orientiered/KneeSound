@@ -9,13 +9,14 @@ namespace waves {
 
 class ReverbKernel : public IDspKernel {
 private:
-    float gain_ = 0.3f;
+    float dry_gain_ = 0.5f;
+    float wet_gain_ = 0.5f;
     uint32_t delay_frames_ = 3000;
 
     using state_t = std::vector<BulkQueue<audio_sample_t>>;
     std::atomic<std::shared_ptr<state_t>> state_;
 
-    std::vector<audio_sample_t> temp_;
+    std::vector<audio_sample_t> wet_;
 public:
 
     ReverbKernel() {}
@@ -33,7 +34,8 @@ public:
     }
 
     uint32_t getDelay() const { return delay_frames_; }
-    float &getGain() { return gain_; }
+    float &getWetGain() { return wet_gain_; }
+    float &getDryGain() { return dry_gain_; }
 
     ~ReverbKernel() override = default;
 };
