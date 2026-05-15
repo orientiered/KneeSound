@@ -149,7 +149,7 @@ cmake --build build -j${nproc}
 
 ### Поток данных
 
-TODO: диаграмма
+![DataFlow](docs/KneeSoundDataFlow.svg)
 
 ### Построение вейвформы
 
