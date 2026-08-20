@@ -1,5 +1,7 @@
 #pragma once
 
+#include <filesystem>
+#include <fstream>
 #include <mutex>
 #include "common.h"
 
@@ -36,8 +38,6 @@ public:
 
     Exporter_View exporter;
 
-    bool show_export_window = false;
-
     Editor(): mtx(),
         media_pool(),
         timeline(mtx),
@@ -53,11 +53,35 @@ public:
         PLOG_INFO << "Editor class initialized";
     }
 
-    void initPlugins();
     void Draw();
-    void DrawExport();
-
     ~Editor() {}
+private:
+
+    void initPlugins();
+    void SaveProject(std::ofstream& output);
+    void OpenProject(std::ifstream& input);
+
+    void DrawExport();
+    bool show_export_window = false;
+
+    void DrawProjectImportExport();
+
+    struct ProjectImportExport {
+        std::filesystem::path knee_sound_project_path;
+        enum Mode {
+            None = 0,
+            Import = 1,
+            Export = 2
+        } mode = None;
+        bool show_file_choose = false;
+
+        static const inline char *popup_key = "Error##ProjectErrorPopup";
+        bool show_import_popup = false;
+        std::string popup_msg = "";
+
+        void StartOpen();
+        void StartExport();
+    } project_import_export_state;
 };
 
 } // namespace waves
