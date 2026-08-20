@@ -8,6 +8,7 @@
 #include <unordered_map>
 
 #include "core/timeline.h"
+#include "serialization.h"
 
 namespace waves {
 
@@ -25,7 +26,7 @@ struct TimelineInteraction {
     ClipId_t stretched_clip_id = CLIP_NONE;
     bool stretching_right = false;
 
-    ma_uint64 drag_start_frame; // позиция клипа в момент начала перетаскивания, needed for undo/redo
+    uint64_t drag_start_frame; // позиция клипа в момент начала перетаскивания, needed for undo/redo
     ImVec2 mouse_start_pos;
 
     TimelineInteraction(): mode(Mode::None) {}
@@ -44,6 +45,7 @@ struct ClipView {
     ImU32 col_waveform      = IM_COL32(255, 255, 255, 100);
     float gain_waveform     = 1.0f; ///< Amplification coefficient for waveform
 
+    void serialize(ProjectWriter output) const;
 };
 
 struct TrackView {
@@ -51,6 +53,8 @@ struct TrackView {
 
     ImU32 col_track_bg_odd  = IM_COL32(80, 80, 80, 200);
     ImU32 col_track_bg_even = IM_COL32(60, 60, 60, 200);
+
+    void serialize(ProjectWriter output) const;
 };
 
 struct TimelineClipboard {
@@ -70,7 +74,7 @@ class TimelineView {
     const float MAX_PPF = 100.f;
     const float MIN_PPF = 0.0001f;  //
 
-    ma_int64 scroll_frame;      // кадр, соответствующий левому краю видимой области
+    int64_t scroll_frame;      // кадр, соответствующий левому краю видимой области
 
     ClipView clip_view_default{};
     ImU32 col_clip_fade = IM_COL32(140, 10, 10, 60);
@@ -173,41 +177,41 @@ public:
     // === Various conversion functions
 
     // Кадр -> позиция в пикселях (относительно левого края канваса)
-    float frameToPixel(ma_int64 frame) const {
+    float frameToPixel(int64_t frame) const {
         return static_cast<float>(frame - scroll_frame) * pixels_per_frame;
     }
 
-    float frameToPixelRel(ma_uint64 frame) const {
+    float frameToPixelRel(uint64_t frame) const {
         return static_cast<float>(frame) * pixels_per_frame;
     }
 
     // Пиксель -> кадр
-    ma_int64 pixelToFrame(float pixel_x) const {
-        return scroll_frame + static_cast<ma_int64>(pixel_x / pixels_per_frame);
+    int64_t pixelToFrame(float pixel_x) const {
+        return scroll_frame + static_cast<int64_t>(pixel_x / pixels_per_frame);
     }
 
-    ma_int64  pixelToFrameRel(float pixel_x) const {
-        return static_cast<ma_uint64>(pixel_x / pixels_per_frame);
+    int64_t  pixelToFrameRel(float pixel_x) const {
+        return static_cast<uint64_t>(pixel_x / pixels_per_frame);
     }
 
     // convert frame to time in milliseconds
-    float frameToMillis(ma_uint64 frame) const {
+    float frameToMillis(uint64_t frame) const {
         const float MILLIS_PER_SEC = 1000;
         return static_cast<float>(frame) / INNER_SAMPLE_RATE * MILLIS_PER_SEC;
     }
 
-    std::pair<ma_int64, ma_int64> getVisibleFramesRange() const {
+    std::pair<int64_t, int64_t> getVisibleFramesRange() const {
         return {pixelToFrame(0), pixelToFrame(field_size.x)};
     }
 
-    std::pair<ma_int64, float> getNearestBeatInPixels() const {
+    std::pair<int64_t, float> getNearestBeatInPixels() const {
         // |  scroll  |       |
-        const ma_uint64 step = getBeatStepInFrames();
-        ma_int64 beat_idx = (scroll_frame + step - 1) / step;
+        const uint64_t step = getBeatStepInFrames();
+        int64_t beat_idx = (scroll_frame + step - 1) / step;
         return {beat_idx, frameToPixel(beat_idx*step)};
     }
 
-    // ImRect getClipRect(ImVec2 pos, float height, ma_uint64 left_frame, ma_uint64 right_frame) {
+    // ImRect getClipRect(ImVec2 pos, float height, uint64_t left_frame, uint64_t right_frame) {
     //     ImVec2 start(pos.x + frameToPixel(left_frame), pos.y);
     //     ImVec2 end(pos.x + frameToPixel(right_frame), pos.y + track_height);
     //     return ImRect(start, end);
@@ -217,7 +221,7 @@ public:
         return col_grid_line;
     }
 
-    ma_uint64 getBeatStepInFrames() const {
+    uint64_t getBeatStepInFrames() const {
         return beats_per_second * INNER_SAMPLE_RATE;
     }
 
@@ -226,10 +230,10 @@ public:
     }
 
 
-    std::pair<ma_int64, ma_int64> getVisibleClipRange(const Clip& clip) const {
+    std::pair<int64_t, int64_t> getVisibleClipRange(const Clip& clip) const {
         auto [vis_left, vis_right] = getVisibleFramesRange();
-        ma_int64 left = std::max(clip.timeline_start_frame, vis_left);
-        ma_int64 right = std::min(vis_right, clip.getTimelineEndFrame());
+        int64_t left = std::max(clip.timeline_start_frame, vis_left);
+        int64_t right = std::min(vis_right, clip.getTimelineEndFrame());
 
         return {left, right};
     }
@@ -291,7 +295,7 @@ private:
 
 public:
     void DrawTimeline(PlaybackController& playback);
-
+    void serialize(ProjectWriter output) const;
 };
 
 

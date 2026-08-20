@@ -8,6 +8,7 @@
 #include <fstream>
 #include <imgui.h>
 #include "nlohmann/json.hpp"
+#include "serialization.h"
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -81,11 +82,14 @@ void Editor::initPlugins() {
 
 void Editor::SaveProject(std::ofstream& output) {
     //stub
-    using json = nlohmann::json;
-    json project = {
-        {"name", KNEE_SOUND_PROJECT_TYPE},
-        {"version", KNEE_SOUND_PROJECT_FORMAT}
-    };
+    json project;
+    ProjectWriter writer(project);
+    writer.write("name", std::string(KNEE_SOUND_PROJECT_TYPE));
+    writer.write("version", KNEE_SOUND_PROJECT_FORMAT);
+
+    timeline.serialize(writer.nest("timeline"));
+
+    tl_view.serialize(writer.nest("timeline_view"));
     
     output << project;
 }

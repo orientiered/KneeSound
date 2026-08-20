@@ -11,6 +11,8 @@
 #include "utils/buffer_utils.h"
 #include "effects/audio_effects.h"
 
+#include "serialization.h"
+
 namespace waves {
 
 // Simple clamping
@@ -20,15 +22,15 @@ inline float clampSample(float sample, float threshold = 0.99f) {
     return sample;
 }
 
-inline ma_int64 secToFrame(float sec) {
+inline int64_t secToFrame(float sec) {
     return sec * INNER_SAMPLE_RATE;
 }
 
-inline float frameToSec(ma_int64 frame) {
+inline float frameToSec(int64_t frame) {
     return static_cast<float>(frame) / INNER_SAMPLE_RATE;
 }
 
-inline std::pair<int, float> frameToMinSec(ma_int64 frame) {
+inline std::pair<int, float> frameToMinSec(int64_t frame) {
     float total_sec = frameToSec(frame);
     int mins = total_sec / 60;
     float sec = total_sec - mins * 60;
@@ -65,10 +67,10 @@ public:
     AudioSourcePtr source;
 
     // === Boundaries  ===
-    ma_int64 source_start_frame;   // inclusive
-    ma_int64 source_end_frame;     // exclusive
+    int64_t source_start_frame;   // inclusive
+    int64_t source_end_frame;     // exclusive
     // [source_start_frame, source_end_frame)
-    ma_int64 timeline_start_frame;
+    int64_t timeline_start_frame;
 
     // === General audio params ===
     double playback_speed = 1.0;
@@ -85,14 +87,14 @@ public:
     Fade fade_out{Fade::OUT, 0};
 
     // === Helpers ===
-    ma_uint64 getSourceDuration() const {
+    uint64_t getSourceDuration() const {
         if (source && source->valid)
             return source->getDurationFrames();
 
         return 0;
     }
 
-    ma_int64 getDurationFrames() const {
+    int64_t getDurationFrames() const {
         return static_cast<double>(source_end_frame - source_start_frame) / playback_speed;
     }
 
@@ -100,49 +102,49 @@ public:
         return frameToSec(getDurationFrames());
     }
 
-    ma_int64 getTimelineEndFrame() const {
+    int64_t getTimelineEndFrame() const {
         return timeline_start_frame + getDurationFrames();
     }
 
-    audio_sample_t getClipSrcFrame(uint32_t channel, ma_int64 src_frame) const {
+    audio_sample_t getClipSrcFrame(uint32_t channel, int64_t src_frame) const {
         return source->pcmData[channel][src_frame];
     }
 
-    double clipFrameToSrcFrame(ma_int64 clip_frame) const {
+    double clipFrameToSrcFrame(int64_t clip_frame) const {
         return source_start_frame + static_cast<double>(clip_frame) * playback_speed;
     }
 
-    ma_int64 srcFrameToClipFrame(double src_frame) const {
+    int64_t srcFrameToClipFrame(double src_frame) const {
         return (src_frame - source_start_frame) / playback_speed;
     }
 
     audio_sample_t getClipFrameInterpolated(uint32_t channel, double src_frame) const;
 
-    audio_sample_t getMonoClipFrame(ma_int64 clip_frame) const;
+    audio_sample_t getMonoClipFrame(int64_t clip_frame) const;
 
-    PeakCache::min_max getPeak(ma_int64 clip_start_frame, ma_int64 clip_end_frame) const;
+    PeakCache::min_max getPeak(int64_t clip_start_frame, int64_t clip_end_frame) const;
 
     // Конвертация: время на таймлайне -> кадр в источнике
-    std::optional<ma_uint64> timelineToClipFrame(ma_int64 timeline_frame) const {
+    std::optional<uint64_t> timelineToClipFrame(int64_t timeline_frame) const {
         if (timeline_frame < timeline_start_frame ||
             timeline_frame >= getTimelineEndFrame()) {
             return std::nullopt; // кадр вне границ клипа
         }
-        ma_uint64 clip_local_frame = timeline_frame - timeline_start_frame;
+        uint64_t clip_local_frame = timeline_frame - timeline_start_frame;
         return clip_local_frame;
     }
 
     /// Renders frames to out buffer, ADDITIVELY
     /// Doesn't write zeros
-    void renderFrames(AudioBuffer &out, ma_int64 start_frame, ma_uint64 frame_count);
+    void renderFrames(AudioBuffer &out, int64_t start_frame, uint64_t frame_count);
 
     /// Trim clip from left (false) or right(true) to position timeline_pos
     /// @return Trim made any changes
-    bool trim(bool right, ma_int64 timeline_pos);
+    bool trim(bool right, int64_t timeline_pos);
     /// Cut clip on timeline_pos. On success returns new created clip
-    std::optional<Clip> cut(ma_int64 timeline_pos);
+    std::optional<Clip> cut(int64_t timeline_pos);
 
-    bool stretch(bool right, ma_int64 timeline_pos);
+    bool stretch(bool right, int64_t timeline_pos);
 
     double setPlaybackSpeed(double speed) {
         playback_speed = std::clamp(speed, MIN_PLAYBACK_SPEED, MAX_PLAYBACK_SPEED);
@@ -157,13 +159,14 @@ public:
         return new_clip;
     }
 
-    Clip(AudioSourcePtr src, ma_int64 timeline_pos):
+    Clip(AudioSourcePtr src, int64_t timeline_pos):
         source(src), timeline_start_frame(timeline_pos),
         source_start_frame(0), source_end_frame(src->pcmData.getFrameCount())
     {
         setUniqueId();
     }
 
+    void serialize(ProjectWriter output) const;
 };
 
 inline ClipId_t Clip::unique_id_ = 0;
@@ -195,7 +198,7 @@ public:
     // PitchShifter  pitch;
     // ================ Methods ================================
 
-    const AudioBuffer &renderBlock(ma_uint64 start_frame);
+    const AudioBuffer &renderBlock(uint64_t start_frame);
     size_t getLatency();
 
     void addClip(Clip&& clip) {
@@ -215,6 +218,8 @@ public:
     {
         setUniqueId();
     }
+
+    void serialize(ProjectWriter output) const;
 };
 
 inline TrackId_t Track::unique_id_ = 0;
@@ -242,7 +247,7 @@ public:
     const size_t render_block_size = RENDER_BLOCK_SIZE;
     std::mutex &mtx; // shared mtx
 
-    std::atomic<ma_uint64> playhead_frame;
+    std::atomic<uint64_t> playhead_frame;
 
     AudioBuffer rendering_buffer;
 
@@ -271,10 +276,10 @@ public:
 
     Track *getTrackById(TrackId_t id);
 
-    const AudioBuffer& renderBlock(ma_uint64 start_frame);
-    const std::vector<audio_sample_t> &renderBlockInterleaved(ma_uint64 start_frame);
+    const AudioBuffer& renderBlock(uint64_t start_frame);
+    const std::vector<audio_sample_t> &renderBlockInterleaved(uint64_t start_frame);
 
-    void renderFrames(audio_sample_t *out, ma_uint64 start_frame, ma_uint64 frame_count);
+    void renderFrames(audio_sample_t *out, uint64_t start_frame, uint64_t frame_count);
 
     bool isValidClipId(ClipId_t id);
     bool isValidTrackId(TrackId_t id);
@@ -292,6 +297,7 @@ public:
     void addTrack();
     ClipId_t addClip(const Clip& clip, int track_idx);
 
+    void serialize(ProjectWriter output) const;
 };
 
 } // namespace waves

@@ -8,7 +8,7 @@
 namespace waves {
 
 struct PeakCache {
-    ma_uint64 block_size_;
+    uint64_t block_size_;
     struct min_max {
         float min = 10.0f;
         float max = -10.0f;
@@ -24,8 +24,8 @@ struct PeakCache {
 
     std::vector<min_max> peaks; // min and max in block
 
-    PeakCache(ma_uint64 block_size, const AudioBuffer &samples);
-    PeakCache(ma_uint64 block_size, const PeakCache &cache);
+    PeakCache(uint64_t block_size, const AudioBuffer &samples);
+    PeakCache(uint64_t block_size, const PeakCache &cache);
 };
 
 struct PeakCacheManager {
@@ -42,13 +42,13 @@ struct PeakCacheManager {
         std::reverse(peak_caches.begin(), peak_caches.end());
     }
 
-    std::optional<PeakCache::min_max> getPeak(ma_uint64 f_start, ma_uint64 f_end) const;
+    std::optional<PeakCache::min_max> getPeak(uint64_t f_start, uint64_t f_end) const;
 };
 
 struct AudioSource {
     bool valid = false;
     std::string name;
-    std::string path;
+    std::string path; // used as unique identifier when exporting/importing projects
 
     std::atomic<bool> loading = false; // use when loading asynchronously
 
@@ -58,20 +58,20 @@ struct AudioSource {
 
     AudioSource(const std::string& name_, const std::string& path_): name(name_), path(path_) {}
 
-    float getMonoSampleAmplitude(ma_uint64 frame) const {
+    float getMonoSampleAmplitude(uint64_t frame) const {
         return pcmData.getMeanSample(frame);
     }
 
-    PeakCache::min_max getPeakFallback(ma_uint64 start, ma_uint64 end) const {
+    PeakCache::min_max getPeakFallback(uint64_t start, uint64_t end) const {
         PeakCache::min_max result;
         end = std::min(end, getDurationFrames());
-        for (ma_uint64 f = start; f < end; ++f) {
+        for (uint64_t f = start; f < end; ++f) {
             result.update(getMonoSampleAmplitude(f));
         }
         return result;
     }
 
-    PeakCache::min_max getPeak(ma_uint64 start, ma_uint64 end) const {
+    PeakCache::min_max getPeak(uint64_t start, uint64_t end) const {
         auto cached = cache.getPeak(start, end);
         if (cached) return *cached;
 
@@ -79,7 +79,7 @@ struct AudioSource {
     }
 
 
-    ma_uint64 getDurationFrames() const {
+    uint64_t getDurationFrames() const {
         return pcmData.getFrameCount();
     }
 

@@ -3,6 +3,7 @@
 #include "common.h"
 
 #include "miniaudio.h"
+#include <cstdint>
 
 class MaAudioPlayer {
 private:

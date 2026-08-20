@@ -9,6 +9,7 @@
 #include "effects/audio_effects.h"
 
 #include "core/playback_controller.h"
+#include "serialization.h"
 #include "gui/timeline_view.h"
 
 namespace waves {
@@ -22,12 +23,12 @@ void TimelineView::zoomAtPixel(float pixel_x, float zoom_factor) {
         return;
     }
 
-    ma_int64 frame_under_cursor = pixelToFrame(pixel_x);
+    int64_t frame_under_cursor = pixelToFrame(pixel_x);
     // Увеличиваем масштаб, сохраняя позицию под курсором
     pixels_per_frame = new_ppf;
     // Корректируем скролл, чтобы кадр под курсором остался на месте
     // Scroll can't be less that zero
-    scroll_frame = std::max(0ll, frame_under_cursor - static_cast<ma_int64>(pixel_x / pixels_per_frame));
+    scroll_frame = std::max(static_cast<int64_t>(0), frame_under_cursor - static_cast<int64_t>(pixel_x / pixels_per_frame));
 }
 
 void TimelineView::scrollByFrames(int64_t delta_frames) {
@@ -35,7 +36,7 @@ void TimelineView::scrollByFrames(int64_t delta_frames) {
     if (delta_frames > 0) {
         scroll_frame += delta_frames;
     } else {
-        scroll_frame = (scroll_frame > static_cast<ma_uint64>(-delta_frames))
+        scroll_frame = (scroll_frame > static_cast<uint64_t>(-delta_frames))
             ? scroll_frame + delta_frames : 0;
     }
 }
@@ -68,11 +69,11 @@ void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
 
     // timeline_clip_frames.first - clip.timeline_start_frame + clip.source_start_frame;
     assert(clip.timelineToClipFrame(timeline_left_frame));
-    ma_uint64 clip_start_frame = *clip.timelineToClipFrame(timeline_left_frame);
+    uint64_t clip_start_frame = *clip.timelineToClipFrame(timeline_left_frame);
     // timeline_clip_frames.second - clip.timeline_start_frame + clip.source_start_frame;
     assert(clip.timelineToClipFrame(timeline_right_frame-1));
 
-    ma_uint64 clip_end_frame  = *clip.timelineToClipFrame(timeline_right_frame-1) + 1;
+    uint64_t clip_end_frame  = *clip.timelineToClipFrame(timeline_right_frame-1) + 1;
 
     // Calculating frame step
     // At least one frame or 1 pixel
@@ -86,7 +87,7 @@ void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
     //TODO: сделать так, чтобы вид вэйвформы не менялся при смещении и изменении масштаба
     if (!g_debug_flags.preview_new_waveform || (step == 1)) {
 
-        for (ma_uint64 f = clip_start_frame; f < clip_end_frame; f += step) {
+        for (uint64_t f = clip_start_frame; f < clip_end_frame; f += step) {
             float x = start_x + frameToPixelRel(f - clip_start_frame);
             // if (x > canvas_width) break;
 
@@ -106,11 +107,11 @@ void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
             float x = static_cast<float>(px) + 0.5f;
             float rel = (x - start_x) / width;
 
-            ma_uint64 f = clip_start_frame + static_cast<ma_uint64>(rel * (clip_end_frame - clip_start_frame));
+            uint64_t f = clip_start_frame + static_cast<uint64_t>(rel * (clip_end_frame - clip_start_frame));
 
             // Берём не один сэмпл, а мин/макс в радиусе ±1 пикселя
             // float min_v = 1.0f, max_v = -1.0f;
-            ma_uint64 radius = std::max<ma_uint64>(1, (clip_end_frame - clip_start_frame) / width * px_step);
+            uint64_t radius = std::max<uint64_t>(1, (clip_end_frame - clip_start_frame) / width * px_step);
             auto [min_v, max_v] = clip.getPeak(f, f+radius);
 
             min_v *= style.gain_waveform;
@@ -668,7 +669,7 @@ void TimelineView::DrawTrack(Track& track, bool parity) {
 void TimelineView::DrawPlayHead(ImDrawList *draw_list,
                                 ImVec2 canvas_pos, ImVec2 size) {
 
-    ma_uint64 playhead_frame = timeline_.playhead_frame.load();
+    uint64_t playhead_frame = timeline_.playhead_frame.load();
     if (playhead_frame >= scroll_frame) {
         float playhead_x = canvas_pos.x + frameToPixel(playhead_frame);
         draw_list->AddLine(ImVec2(playhead_x, canvas_pos.y),
@@ -1013,6 +1014,45 @@ void TimelineView::DrawTimeline(PlaybackController& playback) {
     ImGui::EndChild();
 
     ImGui::EndChild();
+}
+
+void TimelineView::serialize(ProjectWriter output) const {
+    SERIALIZE_SIMPLE(output, pixels_per_frame);
+    SERIALIZE_SIMPLE(output, scroll_frame);
+    SERIALIZE_SIMPLE(output, track_height);
+
+    for (const auto it: clip_view) {
+        const ClipId_t &id = it.first;
+        const ClipView &view = it.second;
+
+        ProjectWriter elem = output.push_back("clip_view");
+        SERIALIZE_SIMPLE(elem, id);
+        view.serialize(elem);
+    }
+
+    for (const auto it: track_view) {
+        const TrackId_t &id = it.first;
+        const TrackView &view = it.second;
+        
+        ProjectWriter elem = output.push_back("track_view");
+        SERIALIZE_SIMPLE(elem, id);
+        view.serialize(elem);
+    }
+}
+
+void ClipView::serialize(ProjectWriter output) const {
+    SERIALIZE_SIMPLE(output, name);
+    SERIALIZE_SIMPLE(output, col_clip_selected);
+    SERIALIZE_SIMPLE(output, col_clip_base);
+    SERIALIZE_SIMPLE(output, col_clip_text);
+    SERIALIZE_SIMPLE(output, col_waveform);
+    SERIALIZE_SIMPLE(output, gain_waveform);
+}
+
+void TrackView::serialize(ProjectWriter output) const {
+    SERIALIZE_SIMPLE(output, name);
+    SERIALIZE_SIMPLE(output, col_track_bg_even);
+    SERIALIZE_SIMPLE(output, col_track_bg_odd);
 }
 
 } // namespace waves
