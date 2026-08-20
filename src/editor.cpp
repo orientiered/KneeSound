@@ -7,6 +7,7 @@
 #include "effects/reverb.h"
 #include <fstream>
 #include <imgui.h>
+#include "nlohmann/json.hpp"
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -80,11 +81,33 @@ void Editor::initPlugins() {
 
 void Editor::SaveProject(std::ofstream& output) {
     //stub
-    output << "Knee sound project";
+    using json = nlohmann::json;
+    json project = {
+        {"name", KNEE_SOUND_PROJECT_TYPE},
+        {"version", KNEE_SOUND_PROJECT_FORMAT}
+    };
+    
+    output << project;
 }
 
 void Editor::OpenProject(std::ifstream& input) {
-    throw std::runtime_error("Project import is not implemented");
+    using json = nlohmann::json;
+
+    json project;
+    try {
+        project = json::parse(input);
+    } catch (json::parse_error& err) {
+        throw std::runtime_error(std::string("Unable to parse: ") + err.what());
+    }
+
+    if (!project.contains("name") || project["name"] != KNEE_SOUND_PROJECT_TYPE ) {
+        throw std::runtime_error("Fromat name mismatch");
+    }
+
+    if (!project.contains("version") || project["version"] != KNEE_SOUND_PROJECT_FORMAT ) {
+        throw std::runtime_error("Format version mismatch");
+    }
+
 }
 
 void Editor::ProjectImportExport::StartOpen() {
@@ -145,7 +168,7 @@ void Editor::DrawProjectImportExport() {
 
     // Import/export error popup
     if (ImGui::BeginPopupModal(s.popup_key)) {
-        ImGui::Text("%s", s.popup_msg.c_str());
+        ImGui::TextWrapped("%s", s.popup_msg.c_str());
 
         if (ImGui::Button("Ok")) {
             ImGui::CloseCurrentPopup();

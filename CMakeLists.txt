@@ -46,7 +46,7 @@ message("Project sources: ${PROJ_SRC}")
 
 add_executable(${EXEC_NAME} ${PROJ_SRC} lib_deps/ImGuiFileDialog/ImGuiFileDialog.cpp)
 target_include_directories(${EXEC_NAME} PRIVATE include lib_deps/ImGuiFileDialog)
-target_link_libraries(${EXEC_NAME} PRIVATE ImGui-SFML::ImGui-SFML plog::plog kissfft)
+target_link_libraries(${EXEC_NAME} PRIVATE ImGui-SFML::ImGui-SFML plog::plog kissfft nlohmann_json::nlohmann_json)
 
 # Copy DLLs needed for runtime on Windows
 if(WIN32)

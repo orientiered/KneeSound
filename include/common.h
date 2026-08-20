@@ -15,6 +15,11 @@
 #include <list>
 #include <optional>
 
+/* =============== VERSIONING ================== */
+
+const char * const KNEE_SOUND_PROJECT_TYPE = "KneeSoundProject";
+const int KNEE_SOUND_PROJECT_FORMAT = 1;
+
 /* =============== PLOG Logger headers ============ */
 
 #include <plog/Log.h>

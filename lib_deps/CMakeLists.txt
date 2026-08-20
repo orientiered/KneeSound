@@ -38,3 +38,8 @@ set(KISSFFT_TEST   OFF) # disabling test and tools build
 set(KISSFFT_TOOLS  OFF) 
 set(KISSFFT_STATIC NOT BUILD_SHARED_LIBS)
 add_subdirectory(kissfft)
+
+# Nlohmann json
+FetchContent_Declare(nlohmann_json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
+message(STATUS "Fetching nlohmann json...")
+FetchContent_MakeAvailable(nlohmann_json)
