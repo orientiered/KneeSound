@@ -2,7 +2,6 @@
 
 #include <atomic>
 
-#include "miniaudio.h"
 #include "utils/buffer_utils.h"
 
 namespace waves {
@@ -86,6 +85,8 @@ struct AudioSource {
 };
 
 using AudioSourcePtr = std::shared_ptr<AudioSource>;
+
+AudioSourcePtr decode_audio_from_file(const std::string& name, const std::string& path, bool async = true);
 
 
 }

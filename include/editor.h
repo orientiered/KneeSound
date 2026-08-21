@@ -5,8 +5,6 @@
 #include <mutex>
 #include "common.h"
 
-#include "miniaudio.h"
-
 #include "core/timeline.h"
 #include "core/playback_controller.h"
 
@@ -19,8 +17,6 @@
 #include "wav_exporter.h"
 
 namespace waves {
-
-AudioSourcePtr decode_audio_from_file(const std::string& name, const std::string& path, bool async = true);
 
 class Editor {
 public:

@@ -4,8 +4,6 @@
 #include <mutex>
 #include "common.h"
 
-#include "miniaudio.h"
-
 #include "core/audio_source.h"
 
 #include "utils/buffer_utils.h"
@@ -77,9 +75,9 @@ public:
     static inline const double MAX_PLAYBACK_SPEED = 10.0;
     static inline const double MIN_PLAYBACK_SPEED = 0.1;
 
-    float gain_db = 0;           // громкость в децибелах (или линейный множитель)
-    float pan = 0;            // панорама: -1.0 (лево) ... 0.0 (центр) ... 1.0 (право)
-    bool  muted = false;           // mute
+    float gain_db = 0;           // gain
+    float pan = 0;               // панорама: -1.0 (лево) ... 0.0 (центр) ... 1.0 (право)
+    bool  muted = false;         // mute
 
     // === Fade in/out ===
 
@@ -166,6 +164,8 @@ public:
         setUniqueId();
     }
 
+    // deserialize
+    Clip(ProjectReader input);
     void serialize(ProjectWriter output) const;
 };
 
@@ -220,6 +220,7 @@ public:
     }
 
     void serialize(ProjectWriter output) const;
+    void deserialize(ProjectReader input);
 };
 
 inline TrackId_t Track::unique_id_ = 0;
@@ -298,6 +299,7 @@ public:
     ClipId_t addClip(const Clip& clip, int track_idx);
 
     void serialize(ProjectWriter output) const;
+    void deserialize(ProjectReader input);
 };
 
 } // namespace waves

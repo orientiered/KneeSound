@@ -46,6 +46,7 @@ struct ClipView {
     float gain_waveform     = 1.0f; ///< Amplification coefficient for waveform
 
     void serialize(ProjectWriter output) const;
+    void deserialize(ProjectReader input);
 };
 
 struct TrackView {
@@ -55,6 +56,7 @@ struct TrackView {
     ImU32 col_track_bg_even = IM_COL32(60, 60, 60, 200);
 
     void serialize(ProjectWriter output) const;
+    void deserialize(ProjectReader input);
 };
 
 struct TimelineClipboard {
@@ -296,6 +298,7 @@ private:
 public:
     void DrawTimeline(PlaybackController& playback);
     void serialize(ProjectWriter output) const;
+    void deserialize(ProjectReader input);
 };
 
 

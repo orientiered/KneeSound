@@ -3,8 +3,11 @@
 #include "effects/audio_effects.h"
 #include "serialization.h"
 #include "utils/buffer_utils.h"
-#include "nlohmann/json.hpp"
+#include "miniaudio.h"
+#include "core/audio_source.h"
+
 #include <cstdint>
+#include <filesystem>
 namespace waves {
 
 /* ================= Peak caches ================ */
@@ -106,6 +109,7 @@ PeakCache::min_max Clip::getPeak(int64_t clip_start_frame, int64_t clip_end_fram
 // Doesn't write zeros
 void Clip::renderFrames(AudioBuffer &out, int64_t start_frame, uint64_t frame_count) {
 
+    if (!source || !source->valid) return;
     if (muted) return;
 
     int64_t out_start_i = (start_frame >= timeline_start_frame) ?
@@ -233,6 +237,41 @@ std::optional<Clip> Clip::cut(int64_t timeline_pos) {
     return new_clip;
 }
 
+Clip::Clip(ProjectReader input) {
+    std::optional<ClipId_t> cid = input.read<ClipId_t>("id");
+    if (!cid) {
+        setUniqueId();
+    } else {
+        id = *cid;
+        unique_id_ = std::max(unique_id_, id+1);
+    }
+
+    if (auto src_reader = input.nest("source")) {
+        if (auto src_path_opt = src_reader->read<std::string>("file") ) {
+            std::filesystem::path path(*src_path_opt);
+            auto &media_map = input.getCtx().media_map;
+            if (media_map.contains(path)) {
+                source = media_map[path];
+            } else {
+                source = decode_audio_from_file(path.filename(), path);
+                media_map[*src_path_opt] = source; 
+            }
+        }
+    } 
+
+    DESERIALIZE_SIMPLE(input, timeline_start_frame, 0);
+    DESERIALIZE_SIMPLE(input, source_start_frame, 0);
+    DESERIALIZE_SIMPLE(input, source_end_frame, 0);
+
+    DESERIALIZE_OPT(input, playback_speed);
+    DESERIALIZE_OPT(input, gain_db);
+    DESERIALIZE_OPT(input, pan);
+    DESERIALIZE_OPT(input, muted);
+    
+    fade_in.duration = input.read<int64_t>("fade_in", 0);
+    fade_out.duration = input.read<int64_t>("fade_out", 0);
+}
+
 void Clip::serialize(ProjectWriter output) const {
     SERIALIZE_SIMPLE(output, id);
     output.write("id", id);
@@ -304,6 +343,30 @@ void Track::serialize(ProjectWriter output) const {
     output.array("clips");
     for (const Clip& clip: clips) {
         clip.serialize(output.push_back("clips"));
+    }
+}
+
+void Track::deserialize(ProjectReader input) {
+    TrackId_t tid = input.read("id", TRACK_NONE);
+    if (tid == TRACK_NONE) {
+        setUniqueId();
+    } else {
+        id = tid;
+        unique_id_ = std::max(unique_id_, tid+1);
+    }
+
+    DESERIALIZE_OPT(input, gain_db);
+    DESERIALIZE_OPT(input, pan);
+    DESERIALIZE_OPT(input, mute);
+
+    std::size_t clip_cnt = input.arr_size("clips");
+    PLOG_DEBUG << "\tDeserializing " << clip_cnt << " clips";
+    // TODO: stop playing or make atomic replacement 
+    clips.clear();
+    for (std::size_t idx = 0; idx < clip_cnt; idx++) {
+        PLOG_DEBUG << "\tDeserialising clip " << idx;
+        ProjectReader arr_reader = input.read_array("clips", idx);
+        addClip(Clip(arr_reader));
     }
 }
 
@@ -515,5 +578,25 @@ void TimeLine::serialize(ProjectWriter output) const {
         track.serialize(output.push_back("tracks"));
     }
 } 
+
+void TimeLine::deserialize(ProjectReader input) {
+    // uint64_t playhead_f = 
+    playhead_frame = input.read<uint64_t>("playhead_frame", 0);
+
+    DESERIALIZE_OPT(input, gain_db);
+    DESERIALIZE_OPT(input, pan);
+
+    std::size_t track_cnt = input.arr_size("tracks");
+    PLOG_DEBUG << "Deserializing " << track_cnt << " tracks";
+    // TODO: stop playing or make atomic replacement 
+    tracks.clear();
+    for (std::size_t idx = 0; idx < track_cnt; idx++) {
+        addTrack();
+        ProjectReader arr_reader = input.read_array("tracks", idx);
+        PLOG_DEBUG << "Deserializing track " << idx;
+        tracks.back().deserialize(arr_reader);
+    }
+}
+
 
 }

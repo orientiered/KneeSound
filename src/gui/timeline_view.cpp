@@ -56,7 +56,7 @@ std::pair<int, int64_t> TimelineView::mousePosToTrackAndFrame() {
 //! Assuming that clip_timeline frames are visible
 void TimelineView::DrawMiniWaveform(ImDrawList* draw_list, const Clip& clip,
                       ImRect waveform_rect) {
-    if (!clip.source || clip.source->pcmData.empty()) return;
+    if (!clip.source || !clip.source->valid || clip.source->pcmData.empty()) return;
 
     float center_y = waveform_rect.GetCenter().y;
     float height = waveform_rect.GetHeight();
@@ -1040,6 +1040,28 @@ void TimelineView::serialize(ProjectWriter output) const {
     }
 }
 
+void TimelineView::deserialize(ProjectReader input) {
+    DESERIALIZE_OPT(input, pixels_per_frame);
+    DESERIALIZE_OPT(input, scroll_frame);
+    DESERIALIZE_OPT(input, track_height);
+
+    const std::size_t clip_view_cnt = input.arr_size("clip_view"); 
+    for (std::size_t idx = 0; idx < clip_view_cnt; idx++) {
+        ProjectReader view_reader = input.read_array("clip_view", idx);
+        ClipId_t id = view_reader.read("id", CLIP_NONE);
+        clip_view[id] = clip_view_default;
+        clip_view[id].deserialize(view_reader);
+    }
+
+    const std::size_t track_view_cnt = input.arr_size("track_view"); 
+    for (std::size_t idx = 0; idx < track_view_cnt; idx++) {
+        ProjectReader view_reader = input.read_array("track_view", idx);
+        TrackId_t id = view_reader.read("id", TRACK_NONE);
+        track_view[id] = track_view_default;
+        track_view[id].deserialize(view_reader);
+    }
+}
+
 void ClipView::serialize(ProjectWriter output) const {
     SERIALIZE_SIMPLE(output, name);
     SERIALIZE_SIMPLE(output, col_clip_selected);
@@ -1049,10 +1071,25 @@ void ClipView::serialize(ProjectWriter output) const {
     SERIALIZE_SIMPLE(output, gain_waveform);
 }
 
+void ClipView::deserialize(ProjectReader input) {
+    DESERIALIZE_OPT(input, name);
+    DESERIALIZE_OPT(input, col_clip_selected);   
+    DESERIALIZE_OPT(input, col_clip_base);   
+    DESERIALIZE_OPT(input, col_clip_text);
+    DESERIALIZE_OPT(input, col_waveform);
+    DESERIALIZE_OPT(input, gain_waveform);   
+}
+
 void TrackView::serialize(ProjectWriter output) const {
     SERIALIZE_SIMPLE(output, name);
     SERIALIZE_SIMPLE(output, col_track_bg_even);
     SERIALIZE_SIMPLE(output, col_track_bg_odd);
+}
+
+void TrackView::deserialize(ProjectReader input) {
+    DESERIALIZE_OPT(input, name);
+    DESERIALIZE_OPT(input, col_track_bg_even);   
+    DESERIALIZE_OPT(input, col_track_bg_odd);   
 }
 
 } // namespace waves

@@ -26,6 +26,11 @@ public:
         audio_src_.push_back(src);
     }
 
+    void clear() {
+        resetTrack();
+        audio_src_.clear();
+    }
+    
     void erase(AudioSourcePtr src) {
         auto it = std::find(audio_src_.begin(), audio_src_.end(), src);
 

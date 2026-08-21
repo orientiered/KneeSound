@@ -91,7 +91,7 @@ void Editor::SaveProject(std::ofstream& output) {
 
     tl_view.serialize(writer.nest("timeline_view"));
     
-    output << project;
+    output << project.dump(2);
 }
 
 void Editor::OpenProject(std::ifstream& input) {
@@ -104,12 +104,27 @@ void Editor::OpenProject(std::ifstream& input) {
         throw std::runtime_error(std::string("Unable to parse: ") + err.what());
     }
 
-    if (!project.contains("name") || project["name"] != KNEE_SOUND_PROJECT_TYPE ) {
+    ProjectContext ctx;
+    ProjectReader reader(project, ctx);
+
+    // header check
+    if (reader.read<std::string>("name", "") != KNEE_SOUND_PROJECT_TYPE) {
         throw std::runtime_error("Fromat name mismatch");
     }
 
-    if (!project.contains("version") || project["version"] != KNEE_SOUND_PROJECT_FORMAT ) {
+    if (reader.read("version", -1 ) != KNEE_SOUND_PROJECT_FORMAT ) {
         throw std::runtime_error("Format version mismatch");
+    }
+
+    // timeline
+    if (auto tl_reader = reader.nest("timeline")) {
+        timeline.deserialize(*tl_reader);
+    }
+
+    // Filling media pool
+    media_pool.clear();
+    for (auto& [path, audio_src]: ctx.media_map) {
+        media_pool.push_back(audio_src);
     }
 
 }

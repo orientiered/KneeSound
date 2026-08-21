@@ -30,9 +30,9 @@ AudioSourcePtr decode_audio_from_file(const std::string& name, const std::string
             ma_deinterleave_pcm_frames(ma_format_f32, INNER_CHANNELS, frameCount,
                 pcmData->data(), reinterpret_cast<void**>(source->pcmData.data()));
 
-            source->valid = true;
             PLOG_INFO << "Building peaks cache...";
             source->cache.build(source->pcmData);
+            source->valid = true;
         }
 
         // not busy
