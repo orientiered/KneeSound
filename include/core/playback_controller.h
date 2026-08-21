@@ -30,7 +30,7 @@ public:
         resetTrack();
         audio_src_.clear();
     }
-    
+
     void erase(AudioSourcePtr src) {
         auto it = std::find(audio_src_.begin(), audio_src_.end(), src);
 
@@ -88,10 +88,10 @@ public:
 
     PlaybackController(MediaPool& pool_, TimeLine& timeline_) :
         pool(pool_), timeline(timeline_),
-        player(ma_format_f32, INNER_CHANNELS, INNER_SAMPLE_RATE, &data_callback, this)
+        player(AudioFormat::f32, INNER_CHANNELS, INNER_SAMPLE_RATE, &data_callback, this)
         {}
 
-    void getFrames(void *out, ma_uint32 frameCount) {
+    void getFrames(void *out, uint32_t frameCount) {
 
         if (src.load() == POOL_SRC) {
             getFramesFromPool(out, frameCount);
@@ -101,16 +101,16 @@ public:
 
     }
 
-    static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
-        PlaybackController *playback_state = reinterpret_cast<PlaybackController*>(pDevice->pUserData);
+    static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, uint32_t frameCount) {
+        PlaybackController *playback_state = reinterpret_cast<PlaybackController*>(getDeviceUserData(pDevice));
         playback_state->getFrames(pOutput, frameCount);
 
         return;
     }
 
-    void getFramesFromTimeline(void *out, ma_uint32 frameCount);
+    void getFramesFromTimeline(void *out, uint32_t frameCount);
 
-    void getFramesFromPool(void* out, ma_uint32 frameCount);
+    void getFramesFromPool(void* out, uint32_t frameCount);
 
     void handleToggleFromTimeline() {
         PLOG_DEBUG << "Playback toggle from timeline";

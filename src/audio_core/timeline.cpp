@@ -1,9 +1,9 @@
 #include "common.h"
 #include "core/timeline.h"
+#include "core/miniaudio_utils.h"
 #include "effects/audio_effects.h"
 #include "serialization.h"
 #include "utils/buffer_utils.h"
-#include "miniaudio.h"
 #include "core/audio_source.h"
 
 #include <cstdint>
@@ -436,9 +436,7 @@ const AudioBuffer& TimeLine::renderBlock(uint64_t start_frame) {
 
 const std::vector<audio_sample_t> &TimeLine::renderBlockInterleaved(uint64_t start_frame) {
     const AudioBuffer &buffer = renderBlock(start_frame);
-    ma_interleave_pcm_frames(ma_format_f32, INNER_CHANNELS, render_block_size,
-            reinterpret_cast<const void**>(const_cast<const float **>(buffer.data())),
-            interleave_buffer.data());
+    interleave_f32_frames(INNER_CHANNELS, render_block_size, buffer.data(), interleave_buffer.data());
     return  interleave_buffer;
 }
 

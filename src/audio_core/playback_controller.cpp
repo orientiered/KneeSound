@@ -5,7 +5,7 @@
 
 namespace waves {
 
-void PlaybackController::getFramesFromTimeline(void *out, ma_uint32 frameCount) {
+void PlaybackController::getFramesFromTimeline(void *out, uint32_t frameCount) {
     PLOG_VERBOSE_IF(g_debug_flags.callback_logs) <<
         "timeline callback: writing " << frameCount << " frames to " << out;
 
@@ -16,7 +16,7 @@ void PlaybackController::getFramesFromTimeline(void *out, ma_uint32 frameCount) 
     timeline.playhead_frame.fetch_add(frameCount);
 }
 
-void PlaybackController::getFramesFromPool(void* out, ma_uint32 frameCount) {
+void PlaybackController::getFramesFromPool(void* out, uint32_t frameCount) {
     PLOG_VERBOSE_IF(g_debug_flags.callback_logs) <<
         "pool callback: writing " << frameCount << " frames to " << out;
 

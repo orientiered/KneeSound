@@ -1,6 +1,7 @@
 #include <thread>
 
 #include "core/audio_source.h"
+#include "common.h"
 #include "core/miniaudio_utils.h"
 
 namespace waves {
@@ -27,8 +28,7 @@ AudioSourcePtr decode_audio_from_file(const std::string& name, const std::string
         if (pcmData) {
             uint64_t frameCount = pcmData->size() / INNER_CHANNELS;
             source->pcmData = AudioBuffer(frameCount, INNER_CHANNELS);
-            ma_deinterleave_pcm_frames(ma_format_f32, INNER_CHANNELS, frameCount,
-                pcmData->data(), reinterpret_cast<void**>(source->pcmData.data()));
+            deinterleave_f32_frames(INNER_CHANNELS, frameCount, pcmData->data(), source->pcmData.data());
 
             PLOG_INFO << "Building peaks cache...";
             source->cache.build(source->pcmData);
