@@ -2,6 +2,7 @@
 
 #include "effects/audio_effects.h"
 #include "common.h"
+#include <variant>
 
 namespace waves {
 
@@ -57,63 +58,120 @@ public:
     ~FFT_Equalizer() override = default;
 };
 
-class FFT_EqualizerView : public IEffectView {
-private:
-    enum Preset {
-        NONE = -1,
-        LOWPASS = 0,
-        HIGHPASS,
-        BANDPASS,
-        REJECTOR,
-        KBAND
-    };
 
-    Preset preset = NONE;
-    Preset applied_preset = NONE;
-
-    // lowpass
-    struct Lowpass {
-        float cutoff = 1000;
-        float attenuation = 10;
-    } lowpass;
-    // highpass
-    struct Highpass {
-        float cutoff = 1000;
-        float attenuation = 10;
-    } highpass;
-    // bandpass
-    struct Bandpass {
-        float left_cutoff = 1000;
-        float right_cutoff = 2000;
-        float left_attenuation = 10;
-        float right_attenuation = 10;
-    } bandpass;
-    // rejector
-    struct Rejector {
-        float left_cutoff = 40;
-        float right_cutoff = 60;
-        float left_attenuation = 20;
-        float right_attenuation = 20;
-        // float gain_db = -30; // gain in rejection band
-    } rejector;
-    // k-band
-    struct KBand {
-        struct Band {
-            float freq_log;
-            float gain_db;
-        };
-        std::vector<Band> bands;
-        int band_count = 5;
-    } kband;
-
+namespace fft_detail {
     const float MAX_FREQ = static_cast<float>(INNER_SAMPLE_RATE) / 2;
     const float MIN_FREQ = 20.0f;
-    float logFreqToNormal(float freq_log) {
-        return MIN_FREQ * std::pow(MAX_FREQ / MIN_FREQ, freq_log);
-    }
-    float freqToLog(float freq) {
-        return std::log(freq / MIN_FREQ) / std::log(MAX_FREQ / MIN_FREQ);
-    }
+}
+
+class FFT_Lowpass {
+public:
+    std::string name = "Lowpass";
+
+    float cutoff = 1000;
+    float attenuation = 10;
+
+    bool Draw();
+    void calculate(std::vector<float> &response);
+};
+
+class FFT_Highpass {
+public:
+    std::string name = "Highpass";
+
+    float cutoff = 1000;
+    float attenuation = 10;
+
+    bool Draw();
+    void calculate(std::vector<float> &response);
+};
+
+class FFT_Bandpass {
+public:
+    std::string name = "Bandpass";
+
+    float left_cutoff = 1000;
+    float right_cutoff = 2000;
+    float left_attenuation = 10;
+    float right_attenuation = 10;
+
+    bool Draw();
+    void calculate(std::vector<float> &response);
+};
+
+class FFT_Rejector {
+public:
+    std::string name = "Rejector";
+
+    float left_cutoff = 40;
+    float right_cutoff = 60;
+    float left_attenuation = 20;
+    float right_attenuation = 20;
+
+    bool Draw();
+    void calculate(std::vector<float> &response);
+};
+
+class FFT_KBand {
+public:
+    std::string name = "K-band";
+
+    struct Band {
+        float freq_log;
+        float gain_db;
+    };
+    std::vector<Band> bands;
+    int band_count = 5;
+
+    bool Draw();
+    void calculate(std::vector<float> &response);
+};
+
+
+using PresetClass = std::variant<
+    FFT_Lowpass,
+    FFT_Highpass,
+    FFT_Bandpass,
+    FFT_Rejector,
+    FFT_KBand
+>;
+
+inline bool PresetDraw(PresetClass& preset) {
+    auto draw_visitor = [] (auto &preset) {
+        return preset.Draw();
+    };
+    return std::visit(draw_visitor, preset);
+}
+
+inline void PresetCalculate(PresetClass& preset, std::vector<float> &response) {
+    auto calc_visitor = [&response] (auto &preset) {
+        return preset.calculate(response);
+    };
+    return std::visit(calc_visitor, preset);
+}
+
+inline std::string PresetName(PresetClass& preset) {
+    auto name_visitor = [] (auto &preset) {
+        return preset.name;
+    };
+    return std::visit(name_visitor, preset);
+}
+
+class FFT_EqualizerView : public IEffectView {
+private:
+
+    using Preset = int;
+
+    Preset preset = 0;
+    Preset applied_preset = 0;
+
+    std::vector<PresetClass> presets = {
+        FFT_Lowpass(),
+        FFT_Highpass(),
+        FFT_Bandpass(),
+        FFT_Rejector(),
+        FFT_KBand()
+    };
 
     // Set new preset, true if changed
     bool setPreset(Preset preset_) {
@@ -126,20 +184,8 @@ public:
     std::vector<float> log_freq_response;
     bool useLogResponse = true;
 
-    bool DrawLowpass();
-    bool DrawHighpass();
-    bool DrawBandpass();
-    bool DrawRejector();
-    bool DrawKBand();
-
     void setResponseSize(size_t size);
     void saveAppliedPreset() { applied_preset = preset; }
-
-    std::vector<float> &calculateLowpass();
-    std::vector<float> &calculateHighpass();
-    std::vector<float> &calculateBandpass();
-    std::vector<float> &calculateRejector();
-    std::vector<float> &calculateKBand();
 
     void DrawSettings() override;
     FFT_EqualizerView(FFT_Equalizer *eq_): eq(eq_) {}
