@@ -73,8 +73,8 @@ private:
 
     // lowpass
     struct Lowpass {
-        float cutoff;
-        float attenuation;
+        float cutoff = 1000;
+        float attenuation = 10;
     } lowpass;
     // highpass
     struct Highpass {

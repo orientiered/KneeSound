@@ -13,8 +13,12 @@ namespace waves {
 
 using json = nlohmann::json;
 
+// forward declaration
+class PluginManager;
+
 struct ProjectContext {
     std::map<std::string, AudioSourcePtr> media_map;
+    PluginManager *plugin_manager;
 };
 
 // Abstraction layer to not depend on json everywhere

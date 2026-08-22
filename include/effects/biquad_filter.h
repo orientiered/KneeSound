@@ -132,6 +132,9 @@ public:
         updateFreqResponse();
     }
 
+    void serialize(ProjectWriter output) const override;
+    void deserialize(ProjectReader input) override;
+    
     ~BiquadSettings() override = default;
 private:
     BiquadFilter *bqf = nullptr;

@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "common.h"
+#include "serialization.h"
 #include "utils/buffer_utils.h"
 #include "core/fft_utils.h"
 
@@ -27,16 +28,14 @@ public:
     virtual void reset() = 0;
 };
 
-using StateWriter = std::ostream;
-using StateReader = std::istream;
 
 /* ============== Base interface for effect editor/view-controller ========== */
 class IEffectView {
 public:
     virtual ~IEffectView() = default;
     virtual void DrawSettings() = 0;
-    // virtual void serialize(StateWriter &out);
-    // virtual void deserialize(StateReader &in);
+    virtual void serialize(ProjectWriter output) const {};
+    virtual void deserialize(ProjectReader input) {};
 
 };
 
@@ -46,6 +45,8 @@ struct PluginPair {
   std::unique_ptr<IEffectView> view;
 };
 
+using EffectId = std::string;
+
 class EffectSlot {
 public:
     EffectSlot(PluginPair plugin):
@@ -53,6 +54,7 @@ public:
 
     std::unique_ptr<IDspKernel> kernel;
     std::unique_ptr<IEffectView> view;
+    EffectId id;
     std::string name;
 };
 
@@ -69,19 +71,25 @@ public:
         return chain_ptr_.load(std::memory_order_acquire);
     }
 
+    const ChainPtr getChain() const {
+        return chain_ptr_.load(std::memory_order_acquire);
+    }
+
     size_t getLatency();
 
     void processBlock(AudioBuffer &in_out);
 
     // Create copy of chain (without copying effects itself), apply fn to it and store new chain
     void modify(std::function<void(Chain&)> fn);
+
+    void serialize(ProjectWriter output) const;
+    void deserialize(ProjectReader input);
 private:
     std::atomic<ChainPtr> chain_ptr_;
 };
 
 // ================ EFFECT CONSTRUCTION ==================================
 
-using EffectId = std::string;
 struct EffectDescriptor {
     std::string name;
     std::string version;

@@ -1,6 +1,7 @@
 #include "effects/biquad_filter.h"
 #include "common.h"
 #include "imgui_misc.h"
+#include "serialization.h"
 #include <endian.h>
 #include <imgui.h>
 namespace waves {
@@ -213,5 +214,25 @@ void BiquadSettings::DrawSettings() {
 
 }
 
+void BiquadSettings::serialize(ProjectWriter output) const {
+    // enum preset -> int
+    SERIALIZE_SIMPLE(output, preset);
+    SERIALIZE_SIMPLE(output, central_freq);
+    SERIALIZE_SIMPLE(output, Q);
+    SERIALIZE_SIMPLE(output, gainDb);
+    SERIALIZE_SIMPLE(output, sample_freq);
+    SERIALIZE_SIMPLE(output, digitalResponse);
+}
+
+void BiquadSettings::deserialize(ProjectReader input) {
+    preset = static_cast<Preset>(input.read<int>("preset", LOWPASS));
+    DESERIALIZE_OPT(input, central_freq);
+    DESERIALIZE_OPT(input, Q);
+    DESERIALIZE_OPT(input, gainDb);
+    DESERIALIZE_OPT(input, sample_freq);
+    DESERIALIZE_OPT(input, digitalResponse);
+
+    updateKernelCoeffs();
+}
 
 }

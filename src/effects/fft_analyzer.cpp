@@ -1,4 +1,5 @@
 
+#include "serialization.h"
 #include "utils/buffer_utils.h"
 #include "common.h"
 #include "effects/fft_analyzer.h"
@@ -76,10 +77,6 @@ void FFT_AnalyzerView::analyzeBuffer() {
 void FFT_AnalyzerView::DrawSettings() {
     analyzeBuffer();
 
-    static float scale = 1.0f;
-    static int cutoff_idx = amps.size();
-    static int bins = 100;
-
     if (ImGui::Button("Reset")) {
         scale = 1.0f;
         cutoff_idx = amps.size();
@@ -90,7 +87,6 @@ void FFT_AnalyzerView::DrawSettings() {
     ImGui::DragFloat("Scale", &scale, 0.01, 0.01, 20);
     ImGui::DragInt("Cutoff idx", &cutoff_idx, 1, 10, amps.size());
 
-    static int window_idx = 1;
     const int window_count = 4;
     const char * const window_labels[] = {
         "Rectangle [NONE]",
@@ -131,5 +127,22 @@ void FFT_AnalyzerView::DrawSettings() {
 
 }
 
+void FFT_AnalyzerView::serialize(ProjectWriter output) const {
+    output.write("window_type", static_cast<int>(window_type));
+    SERIALIZE_SIMPLE(output, window_idx);
+    SERIALIZE_SIMPLE(output, scale);
+    SERIALIZE_SIMPLE(output, cutoff_idx);
+    SERIALIZE_SIMPLE(output, bins);
+}
+
+void FFT_AnalyzerView::deserialize(ProjectReader input) {
+    window_type = static_cast<WindowFunction::Type>(
+        input.read<int>("window_type", static_cast<int>(WindowFunction::Type::None))
+    );
+    DESERIALIZE_OPT(input, window_idx);
+    DESERIALIZE_OPT(input, scale);
+    DESERIALIZE_OPT(input, cutoff_idx);
+    DESERIALIZE_OPT(input, bins);
+}
 
 }

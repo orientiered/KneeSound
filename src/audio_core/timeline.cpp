@@ -344,6 +344,8 @@ void Track::serialize(ProjectWriter output) const {
     for (const Clip& clip: clips) {
         clip.serialize(output.push_back("clips"));
     }
+
+    effects_.serialize(output.nest("effects"));
 }
 
 void Track::deserialize(ProjectReader input) {
@@ -367,6 +369,10 @@ void Track::deserialize(ProjectReader input) {
         PLOG_DEBUG << "\tDeserialising clip " << idx;
         ProjectReader arr_reader = input.read_array("clips", idx);
         addClip(Clip(arr_reader));
+    }
+
+    if (auto effects_reader = input.nest("effects")) {
+        effects_.deserialize(*effects_reader);
     }
 }
 
@@ -575,6 +581,8 @@ void TimeLine::serialize(ProjectWriter output) const {
     for (const Track& track: tracks) {
         track.serialize(output.push_back("tracks"));
     }
+
+    effects_.serialize(output.nest("effects"));
 } 
 
 void TimeLine::deserialize(ProjectReader input) {
@@ -593,6 +601,10 @@ void TimeLine::deserialize(ProjectReader input) {
         ProjectReader arr_reader = input.read_array("tracks", idx);
         PLOG_DEBUG << "Deserializing track " << idx;
         tracks.back().deserialize(arr_reader);
+    }
+
+    if (auto effects_reader = input.nest("effects")) {
+        effects_.deserialize(*effects_reader);
     }
 }
 

@@ -104,7 +104,7 @@ void Editor::OpenProject(std::ifstream& input) {
         throw std::runtime_error(std::string("Unable to parse: ") + err.what());
     }
 
-    ProjectContext ctx;
+    ProjectContext ctx = {{}, &plugin_manager};
     ProjectReader reader(project, ctx);
 
     // header check

@@ -2,6 +2,7 @@
 
 #include "common.h"
 #include "effects/audio_effects.h"
+#include "serialization.h"
 #include "utils/buffer_utils.h"
 #include <cstdint>
 
@@ -49,6 +50,8 @@ public:
     ReverbView(ReverbKernel *reverb): reverb_(reverb) {
     }
 
+    void serialize(ProjectWriter output) const override;
+    void deserialize(ProjectReader input) override;
     ~ReverbView() override = default;
 private:
     ReverbKernel *reverb_ = nullptr;

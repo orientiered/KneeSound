@@ -60,6 +60,18 @@ void ReverbView::DrawSettings() {
 
 }
 
+void ReverbView::serialize(ProjectWriter output) const {
+    output.write("dry_gain", reverb_->getDryGain());
+    output.write("wet_gain", reverb_->getWetGain());
+    output.write("delay_sec", delay_sec_);
+}
 
+void ReverbView::deserialize(ProjectReader input) {
+    reverb_->getDryGain() = input.read("dry_gain", 0.5f);
+    reverb_->getWetGain() = input.read("wet_gain", 0.5f);
+
+    delay_sec_ = input.read("delay_sec", 0.f);
+    reverb_->prepare(delay_sec_ * INNER_SAMPLE_RATE);
+}
 
 }

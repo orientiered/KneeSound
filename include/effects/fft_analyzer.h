@@ -24,6 +24,7 @@ public:
 
 class FFT_AnalyzerView : public IEffectView {
 private:
+    // runtime info
     bool open = false;
     std::vector<float> amps;
     std::vector<float> log_amps;
@@ -33,17 +34,25 @@ private:
 
     // for realtime analyze
     WindowedKissFFTR wfftr;
-    WindowFunction::Type window_type = WindowFunction::Type::Hann;
 
     std::vector<float> temp_in;
     std::vector<kiss_fft_cpx> temp_out;
     void analyzeBuffer();
 
+    // drawing and analysis preferences
+    WindowFunction::Type window_type = WindowFunction::Type::Hann;
+    int window_idx = 1;
+    float scale = 1.0f;
+    int cutoff_idx = 100;
+    int bins = 100;
+    
 public:
     ~FFT_AnalyzerView() override = default;
-    FFT_AnalyzerView(FFT_Analyzer *analyzer) : analyzer_(analyzer) {
+    FFT_AnalyzerView(FFT_Analyzer *analyzer) : analyzer_(analyzer) {}
 
-    }
+    void serialize(ProjectWriter output) const override;
+    void deserialize(ProjectReader input) override;
+
     void DrawSettings() override;
 private:
     FFT_Analyzer *analyzer_;
