@@ -1021,22 +1021,24 @@ void TimelineView::serialize(ProjectWriter output) const {
     SERIALIZE_SIMPLE(output, scroll_frame);
     SERIALIZE_SIMPLE(output, track_height);
 
-    for (const auto it: clip_view) {
+    ProjectWriter clip_view_arr = output.array("clip_view");
+    for (const auto &it: clip_view) {
         const ClipId_t &id = it.first;
         const ClipView &view = it.second;
 
-        ProjectWriter elem = output.push_back("clip_view");
+        ProjectWriter elem = clip_view_arr.push_back();
         SERIALIZE_SIMPLE(elem, id);
-        view.serialize(elem);
+        SERIALIZE_SIMPLE(elem, view);
     }
 
+    ProjectWriter track_view_arr = output.array("track_view");
     for (const auto it: track_view) {
         const TrackId_t &id = it.first;
         const TrackView &view = it.second;
         
-        ProjectWriter elem = output.push_back("track_view");
+        ProjectWriter elem = track_view_arr.push_back();
         SERIALIZE_SIMPLE(elem, id);
-        view.serialize(elem);
+        SERIALIZE_SIMPLE(elem, view);
     }
 }
 
@@ -1045,51 +1047,25 @@ void TimelineView::deserialize(ProjectReader input) {
     DESERIALIZE_OPT(input, scroll_frame);
     DESERIALIZE_OPT(input, track_height);
 
-    const std::size_t clip_view_cnt = input.arr_size("clip_view"); 
-    for (std::size_t idx = 0; idx < clip_view_cnt; idx++) {
-        ProjectReader view_reader = input.read_array("clip_view", idx);
-        ClipId_t id = view_reader.read("id", CLIP_NONE);
-        clip_view[id] = clip_view_default;
-        clip_view[id].deserialize(view_reader);
+    if (auto clip_view_arr = input.nest("clip_view")) {
+        const std::size_t cnt = clip_view_arr->arr_size();
+        for (std::size_t idx = 0; idx < cnt; idx++) {
+            ProjectReader view_reader = clip_view_arr->read_array(idx);
+            ClipId_t id = view_reader.read("id", CLIP_NONE);
+            clip_view[id] = clip_view_default;
+            clip_view[id].deserialize(view_reader);
+        }
     }
 
-    const std::size_t track_view_cnt = input.arr_size("track_view"); 
-    for (std::size_t idx = 0; idx < track_view_cnt; idx++) {
-        ProjectReader view_reader = input.read_array("track_view", idx);
-        TrackId_t id = view_reader.read("id", TRACK_NONE);
-        track_view[id] = track_view_default;
-        track_view[id].deserialize(view_reader);
+    if (auto track_view_arr = input.nest("track_view")) {
+        const std::size_t cnt = track_view_arr->arr_size();
+        for (std::size_t idx = 0; idx < cnt; idx++) {
+            ProjectReader view_reader = track_view_arr->read_array(idx);
+            TrackId_t id = view_reader.read("id", TRACK_NONE);
+            track_view[id] = track_view_default;
+            track_view[id].deserialize(view_reader);
+        }
     }
-}
-
-void ClipView::serialize(ProjectWriter output) const {
-    SERIALIZE_SIMPLE(output, name);
-    SERIALIZE_SIMPLE(output, col_clip_selected);
-    SERIALIZE_SIMPLE(output, col_clip_base);
-    SERIALIZE_SIMPLE(output, col_clip_text);
-    SERIALIZE_SIMPLE(output, col_waveform);
-    SERIALIZE_SIMPLE(output, gain_waveform);
-}
-
-void ClipView::deserialize(ProjectReader input) {
-    DESERIALIZE_OPT(input, name);
-    DESERIALIZE_OPT(input, col_clip_selected);   
-    DESERIALIZE_OPT(input, col_clip_base);   
-    DESERIALIZE_OPT(input, col_clip_text);
-    DESERIALIZE_OPT(input, col_waveform);
-    DESERIALIZE_OPT(input, gain_waveform);   
-}
-
-void TrackView::serialize(ProjectWriter output) const {
-    SERIALIZE_SIMPLE(output, name);
-    SERIALIZE_SIMPLE(output, col_track_bg_even);
-    SERIALIZE_SIMPLE(output, col_track_bg_odd);
-}
-
-void TrackView::deserialize(ProjectReader input) {
-    DESERIALIZE_OPT(input, name);
-    DESERIALIZE_OPT(input, col_track_bg_even);   
-    DESERIALIZE_OPT(input, col_track_bg_odd);   
 }
 
 } // namespace waves

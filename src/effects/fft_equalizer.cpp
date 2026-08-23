@@ -244,7 +244,7 @@ void FFT_EqualizerView::serialize(ProjectWriter output) const {
     SERIALIZE_SIMPLE(output, useLogResponse);
     
     for (const PresetClass& preset: presets) {
-        preset.serialize(output.nest(preset.name()));
+        output.write(preset.name(), preset);
     }
 }
 
@@ -252,9 +252,7 @@ void FFT_EqualizerView::deserialize(ProjectReader input) {
     DESERIALIZE_OPT(input, useLogResponse);
     
     for (PresetClass& preset: presets) {
-        if (auto preset_input = input.nest(preset.name())) {
-            preset.deserialize(*preset_input);
-        }
+        input.read_to(preset.name(), preset);
     }
 }
 

@@ -8,13 +8,13 @@ namespace waves {
 
 // =================== PROJECT WRITER ==============
 
-ProjectWriter::ProjectWriter(ProjectWriter other, std::string_view name): 
-    obj_(other.obj_.get()[name]) {}
+template<typename T> 
+void ProjectWriter::write(T val) requires is_default_serializible<T> {
+    obj_.get() = std::move(val);
+}
 
 #define DEFINE_WRITE_FOR_T(T) \
-void ProjectWriter::write(std::string_view name, T val) { \
-    obj_.get()[name] = std::move(val); \
-}
+template void ProjectWriter::write<T>(T val);
 
 DEFINE_WRITE_FOR_T(std::string)
 DEFINE_WRITE_FOR_T(int)
@@ -25,27 +25,39 @@ DEFINE_WRITE_FOR_T(float)
 DEFINE_WRITE_FOR_T(double)
 DEFINE_WRITE_FOR_T(bool)
 
+ProjectWriter::ProjectWriter(ProjectWriter other, std::string_view name): 
+    obj_(other.obj_.get()[name]) {}
+    
 
-void ProjectWriter::array(std::string_view name) {
-    obj_.get()[name] = json::array();
+ProjectWriter ProjectWriter::array(std::string_view name) {
+    return ProjectWriter(obj_.get()[name] = json::array());
 }
 
-ProjectWriter ProjectWriter::push_back(std::string_view name) {
-    if (!obj_.get()[name].is_array()) 
-        array(name);
-    obj_.get()[name].push_back(json());
-    return ProjectWriter(obj_.get()[name].back());
+ProjectWriter ProjectWriter::push_back() {
+    if (!obj_.get().is_array())
+        obj_.get() = json::array();
+
+    obj_.get().push_back(json());
+    return ProjectWriter(obj_.get().back());
 }
 
 // =================== PROJECT READER ==============
 
-template <typename ValueT>
-std::optional<ValueT> ProjectReader::read(std::string_view name) requires is_default_serializible<ValueT> {
+std::optional<ProjectReader> ProjectReader::nest(std::string_view name) {
     if (!obj_.get().contains(name)) {
         return std::nullopt;
     }
 
-    return obj_.get().at(name).get<ValueT>();
+    return ProjectReader(obj_.get().at(name), context_);
+}
+
+template <typename ValueT>
+std::optional<ValueT> ProjectReader::read() requires is_default_serializible<ValueT> {
+    if (obj_.get().is_primitive() && !obj_.get().is_null()) {
+        return obj_.get().get<ValueT>();
+    } else {
+        return std::nullopt;
+    }
 }
 
 #define DEFINE_READ_FOR_T(T) \
@@ -60,28 +72,12 @@ DEFINE_READ_FOR_T(float)
 DEFINE_READ_FOR_T(double)
 DEFINE_READ_FOR_T(bool)
 
-std::optional<ProjectReader> ProjectReader::nest(std::string_view name) {
-    if (!obj_.get().contains(name)) {
-        return std::nullopt;
-    }
-
-    return ProjectReader(obj_.get().at(name), context_);
+int64_t ProjectReader::arr_size() {
+    return obj_.get().is_array() ? obj_.get().size() : -1;
 }
 
-std::size_t ProjectReader::arr_size(std::string_view name) {
-    if (!obj_.get().contains(name)) {
-        return 0;
-    }
-
-    if (!obj_.get().at(name).is_array()) {
-        return 0;
-    }
-
-    
-    return obj_.get().at(name).size();
+ProjectReader ProjectReader::read_array(std::size_t idx) {
+    return ProjectReader(obj_.get()[idx], context_);
 }
 
-ProjectReader ProjectReader::read_array(std::string_view name, std::size_t idx) {
-    return ProjectReader(obj_.get()[name][idx], context_);
-}
 }

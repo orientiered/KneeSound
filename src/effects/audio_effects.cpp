@@ -49,29 +49,34 @@ void EffectChain::processBlock(AudioBuffer &in_out) {
 
 void EffectChain::serialize(ProjectWriter output) const {
     auto effect_chain = getChain();
-    output.array("chain");
+    
+    ProjectWriter chain_arr = output.array("chain");
     for (auto effect_ptr: *effect_chain) {
-        ProjectWriter effect_writer = output.push_back("chain");
+        ProjectWriter effect_writer = chain_arr.push_back();
         effect_writer.write("id", effect_ptr->id);
         effect_ptr->view->serialize(effect_writer);
     }
 }
 
 void EffectChain::deserialize(ProjectReader input) {
-    std::size_t cnt = input.arr_size("chain");
-
+    
     PluginManager *pm = input.getCtx().plugin_manager;
     ChainPtr new_chain = std::make_shared<Chain>();
-    for (std::size_t idx = 0; idx < cnt; idx++) {
-        ProjectReader effct_reader = input.read_array("chain", idx);
-        EffectId id = effct_reader.read("id", std::string("UNKNOWN_EFFECT"));
-        auto new_effect_slot = pm->buildEffect(id);
-        if (new_effect_slot)
-            new_effect_slot->view->deserialize(effct_reader);
 
-        new_chain->push_back(new_effect_slot);
-    }    
-
+    if (auto chain_arr = input.nest("chain")) {
+        int64_t cnt = chain_arr->arr_size();
+        for (int64_t idx = 0; idx < cnt; idx++) {
+            ProjectReader effct_reader = chain_arr->read_array(idx);
+            EffectId id = effct_reader.read("id", std::string("UNKNOWN_EFFECT"));
+            auto new_effect_slot = pm->buildEffect(id);
+            if (new_effect_slot)
+                new_effect_slot->view->deserialize(effct_reader);
+    
+            new_chain->push_back(new_effect_slot);
+        }     
+    
+    }
+    
     chain_ptr_.store(new_chain);
 }
 

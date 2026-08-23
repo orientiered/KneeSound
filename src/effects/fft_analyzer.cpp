@@ -127,22 +127,6 @@ void FFT_AnalyzerView::DrawSettings() {
 
 }
 
-void FFT_AnalyzerView::serialize(ProjectWriter output) const {
-    output.write("window_type", static_cast<int>(window_type));
-    SERIALIZE_SIMPLE(output, window_idx);
-    SERIALIZE_SIMPLE(output, scale);
-    SERIALIZE_SIMPLE(output, cutoff_idx);
-    SERIALIZE_SIMPLE(output, bins);
-}
-
-void FFT_AnalyzerView::deserialize(ProjectReader input) {
-    window_type = static_cast<WindowFunction::Type>(
-        input.read<int>("window_type", static_cast<int>(WindowFunction::Type::None))
-    );
-    DESERIALIZE_OPT(input, window_idx);
-    DESERIALIZE_OPT(input, scale);
-    DESERIALIZE_OPT(input, cutoff_idx);
-    DESERIALIZE_OPT(input, bins);
-}
+DEFINE_SIMPLE_SERDE_OUTLINE(FFT_AnalyzerView, window_type, window_idx, scale, cutoff_idx, bins)
 
 }

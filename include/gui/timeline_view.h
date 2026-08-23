@@ -45,8 +45,9 @@ struct ClipView {
     ImU32 col_waveform      = IM_COL32(255, 255, 255, 100);
     float gain_waveform     = 1.0f; ///< Amplification coefficient for waveform
 
-    void serialize(ProjectWriter output) const;
-    void deserialize(ProjectReader input);
+    DEFINE_SIMPLE_SERDE(name, 
+        col_clip_selected, col_clip_base, col_clip_text, 
+        col_waveform, gain_waveform)
 };
 
 struct TrackView {
@@ -55,8 +56,7 @@ struct TrackView {
     ImU32 col_track_bg_odd  = IM_COL32(80, 80, 80, 200);
     ImU32 col_track_bg_even = IM_COL32(60, 60, 60, 200);
 
-    void serialize(ProjectWriter output) const;
-    void deserialize(ProjectReader input);
+    DEFINE_SIMPLE_SERDE(name, col_track_bg_odd, col_track_bg_even)
 };
 
 struct TimelineClipboard {

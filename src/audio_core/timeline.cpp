@@ -274,7 +274,6 @@ Clip::Clip(ProjectReader input) {
 
 void Clip::serialize(ProjectWriter output) const {
     SERIALIZE_SIMPLE(output, id);
-    output.write("id", id);
     output.nest("source").write("file", source->path);
 
     SERIALIZE_SIMPLE(output, source_start_frame);
@@ -340,12 +339,8 @@ void Track::serialize(ProjectWriter output) const {
     SERIALIZE_SIMPLE(output, gain_db);
     SERIALIZE_SIMPLE(output, pan);
     SERIALIZE_SIMPLE(output, mute);
-    output.array("clips");
-    for (const Clip& clip: clips) {
-        clip.serialize(output.push_back("clips"));
-    }
-
-    effects_.serialize(output.nest("effects"));
+    SERIALIZE_SIMPLE(output, clips);
+    output.write("effects", effects_);
 }
 
 void Track::deserialize(ProjectReader input) {
@@ -361,19 +356,9 @@ void Track::deserialize(ProjectReader input) {
     DESERIALIZE_OPT(input, pan);
     DESERIALIZE_OPT(input, mute);
 
-    std::size_t clip_cnt = input.arr_size("clips");
-    PLOG_DEBUG << "\tDeserializing " << clip_cnt << " clips";
     // TODO: stop playing or make atomic replacement 
-    clips.clear();
-    for (std::size_t idx = 0; idx < clip_cnt; idx++) {
-        PLOG_DEBUG << "\tDeserialising clip " << idx;
-        ProjectReader arr_reader = input.read_array("clips", idx);
-        addClip(Clip(arr_reader));
-    }
-
-    if (auto effects_reader = input.nest("effects")) {
-        effects_.deserialize(*effects_reader);
-    }
+    DESERIALIZE_OPT(input, clips);
+    input.read_to("effects",effects_);
 }
 
 
@@ -574,38 +559,37 @@ ClipId_t TimeLine::addClip(const Clip& clip, int track_idx) {
 }
 
 void TimeLine::serialize(ProjectWriter output) const {
-    SERIALIZE_SIMPLE(output, playhead_frame);
+    output.write("playhead_frame", playhead_frame.load());
     SERIALIZE_SIMPLE(output, gain_db);
     SERIALIZE_SIMPLE(output, pan);  
-    output.array("tracks");
+    
+    ProjectWriter track_arr = output.array("tracks");
     for (const Track& track: tracks) {
-        track.serialize(output.push_back("tracks"));
+        track_arr.push_back().write(track);
     }
 
-    effects_.serialize(output.nest("effects"));
+    output.write("effects", effects_);
 } 
 
 void TimeLine::deserialize(ProjectReader input) {
-    // uint64_t playhead_f = 
     playhead_frame = input.read<uint64_t>("playhead_frame", 0);
 
     DESERIALIZE_OPT(input, gain_db);
     DESERIALIZE_OPT(input, pan);
 
-    std::size_t track_cnt = input.arr_size("tracks");
-    PLOG_DEBUG << "Deserializing " << track_cnt << " tracks";
-    // TODO: stop playing or make atomic replacement 
-    tracks.clear();
-    for (std::size_t idx = 0; idx < track_cnt; idx++) {
-        addTrack();
-        ProjectReader arr_reader = input.read_array("tracks", idx);
-        PLOG_DEBUG << "Deserializing track " << idx;
-        tracks.back().deserialize(arr_reader);
+    if (std::optional<ProjectReader> track_arr = input.nest("tracks")) {
+        int64_t cnt = track_arr->arr_size();
+        PLOG_DEBUG << "Deserializing " << cnt << " tracks";
+        // TODO: stop playing or make atomic replacement 
+        tracks.clear();
+        for (int64_t idx = 0; idx < cnt; idx++) {
+            addTrack();
+            PLOG_DEBUG << "Deserializing track " << idx;
+            track_arr->read_array(idx).read_to(tracks.back());
+        }
     }
 
-    if (auto effects_reader = input.nest("effects")) {
-        effects_.deserialize(*effects_reader);
-    }
+    input.read_to("effects", effects_);
 }
 
 
