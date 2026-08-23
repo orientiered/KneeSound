@@ -4,6 +4,7 @@
 #include "imgui.h"
 #include "imgui_misc.h"
 
+#include "serialization.h"
 #include "utils/misc_utils.h"
 
 namespace waves {
@@ -204,9 +205,9 @@ void FFT_EqualizerView::DrawSettings() {
     if (ImGui::BeginTabBar(EQ_TABS)) {
         for (int i = 0; i < presets.size(); i++) {
             PresetClass& preset = presets[i];
-            if (ImGui::BeginTabItem(PresetName(preset).c_str())) {
+            if (ImGui::BeginTabItem(preset.name().c_str())) {
                 modified |= setPreset(i);
-                modified |= PresetDraw(preset);
+                modified |= preset.Draw();
                 
                 ImGui::EndTabItem();
             }
@@ -216,7 +217,7 @@ void FFT_EqualizerView::DrawSettings() {
 
 
     if (modified) {
-        PresetCalculate(presets[preset], frequency_response);
+        presets[preset].calculate(frequency_response);
         log_freq_response = convertToDoubleLogScale(frequency_response, INNER_SAMPLE_RATE, frequency_response.size());
     }
     ImGui::Text("Response graph");
@@ -237,8 +238,24 @@ void FFT_EqualizerView::DrawSettings() {
 
         eq->setFreqResponse(frequency_response);
     }
+}
 
+void FFT_EqualizerView::serialize(ProjectWriter output) const {
+    SERIALIZE_SIMPLE(output, useLogResponse);
+    
+    for (const PresetClass& preset: presets) {
+        preset.serialize(output.nest(preset.name()));
+    }
+}
 
+void FFT_EqualizerView::deserialize(ProjectReader input) {
+    DESERIALIZE_OPT(input, useLogResponse);
+    
+    for (PresetClass& preset: presets) {
+        if (auto preset_input = input.nest(preset.name())) {
+            preset.deserialize(*preset_input);
+        }
+    }
 }
 
 }

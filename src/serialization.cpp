@@ -40,7 +40,7 @@ ProjectWriter ProjectWriter::push_back(std::string_view name) {
 // =================== PROJECT READER ==============
 
 template <typename ValueT>
-std::optional<ValueT> ProjectReader::read(std::string_view name) {
+std::optional<ValueT> ProjectReader::read(std::string_view name) requires is_default_serializible<ValueT> {
     if (!obj_.get().contains(name)) {
         return std::nullopt;
     }

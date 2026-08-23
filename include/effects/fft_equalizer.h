@@ -3,6 +3,7 @@
 #include "effects/audio_effects.h"
 #include "common.h"
 #include <variant>
+#include "serialization.h"
 
 namespace waves {
 
@@ -64,12 +65,15 @@ namespace fft_detail {
     const float MIN_FREQ = 20.0f;
 }
 
+
 class FFT_Lowpass {
 public:
     std::string name = "Lowpass";
 
     float cutoff = 1000;
     float attenuation = 10;
+
+    DEFINE_SIMPLE_SERDE(cutoff, attenuation)
 
     bool Draw();
     void calculate(std::vector<float> &response);
@@ -81,6 +85,8 @@ public:
 
     float cutoff = 1000;
     float attenuation = 10;
+
+    DEFINE_SIMPLE_SERDE(cutoff, attenuation)
 
     bool Draw();
     void calculate(std::vector<float> &response);
@@ -95,6 +101,8 @@ public:
     float left_attenuation = 10;
     float right_attenuation = 10;
 
+    DEFINE_SIMPLE_SERDE(left_cutoff, right_cutoff, left_attenuation, right_attenuation)
+
     bool Draw();
     void calculate(std::vector<float> &response);
 };
@@ -108,6 +116,8 @@ public:
     float left_attenuation = 20;
     float right_attenuation = 20;
 
+    DEFINE_SIMPLE_SERDE(left_cutoff, right_cutoff, left_attenuation, right_attenuation)
+
     bool Draw();
     void calculate(std::vector<float> &response);
 };
@@ -119,16 +129,20 @@ public:
     struct Band {
         float freq_log;
         float gain_db;
+
+        DEFINE_SIMPLE_SERDE(freq_log, gain_db)
     };
     std::vector<Band> bands;
     int band_count = 5;
+
+    // Note: band_count is used 
+    DEFINE_SIMPLE_SERDE(bands, band_count)
 
     bool Draw();
     void calculate(std::vector<float> &response);
 };
 
-
-using PresetClass = std::variant<
+using PresetVariant = std::variant<
     FFT_Lowpass,
     FFT_Highpass,
     FFT_Bandpass,
@@ -136,26 +150,47 @@ using PresetClass = std::variant<
     FFT_KBand
 >;
 
-inline bool PresetDraw(PresetClass& preset) {
-    auto draw_visitor = [] (auto &preset) {
-        return preset.Draw();
-    };
-    return std::visit(draw_visitor, preset);
-}
+class PresetClass {
+    PresetVariant preset;
+public:
+    PresetClass(PresetVariant &&p): preset(p) {}
 
-inline void PresetCalculate(PresetClass& preset, std::vector<float> &response) {
-    auto calc_visitor = [&response] (auto &preset) {
-        return preset.calculate(response);
-    };
-    return std::visit(calc_visitor, preset);
-}
+    bool Draw() {
+        auto draw_visitor = [] (auto &preset) {
+            return preset.Draw();
+        };
+        return std::visit(draw_visitor, preset);
+    }
 
-inline std::string PresetName(PresetClass& preset) {
-    auto name_visitor = [] (auto &preset) {
-        return preset.name;
-    };
-    return std::visit(name_visitor, preset);
-}
+    void calculate(std::vector<float> &response) {
+        auto calc_visitor = [&response] (auto &preset) {
+            return preset.calculate(response);
+        };
+        return std::visit(calc_visitor, preset);
+    }
+
+    void serialize(ProjectWriter output) const {
+        auto visitor = [&output] (auto &preset) {
+            return preset.serialize(output);
+        };
+        return std::visit(visitor, preset);
+    }
+
+    void deserialize(ProjectReader input) {
+        auto visitor = [&input] (auto &preset) {
+            return preset.deserialize(input);
+        };
+        return std::visit(visitor, preset);
+    }
+
+    std::string name() const {
+        auto name_visitor = [] (auto &preset) {
+            return preset.name;
+        };
+        return std::visit(name_visitor, preset);
+    }
+};
+
 
 class FFT_EqualizerView : public IEffectView {
 private:
@@ -166,11 +201,11 @@ private:
     Preset applied_preset = 0;
 
     std::vector<PresetClass> presets = {
-        FFT_Lowpass(),
-        FFT_Highpass(),
-        FFT_Bandpass(),
-        FFT_Rejector(),
-        FFT_KBand()
+        PresetClass(FFT_Lowpass()),
+        PresetClass(FFT_Highpass()),
+        PresetClass(FFT_Bandpass()),
+        PresetClass(FFT_Rejector()),
+        PresetClass(FFT_KBand())
     };
 
     // Set new preset, true if changed
@@ -186,6 +221,9 @@ public:
 
     void setResponseSize(size_t size);
     void saveAppliedPreset() { applied_preset = preset; }
+
+    void serialize(ProjectWriter output) const override;
+    void deserialize(ProjectReader input) override;
 
     void DrawSettings() override;
     FFT_EqualizerView(FFT_Equalizer *eq_): eq(eq_) {}
